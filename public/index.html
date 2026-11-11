@@ -19,7 +19,7 @@
     <div class="side-note">Herramienta privada<br>de promociones</div>
   </aside>
   <main>
-    <header><div><div class="eyebrow">ADMINISTRACIÓN</div><h1 id="page-title">Inicio</h1></div><div class="user-chip"><span class="online"></span> Panel privado</div></header>
+    <header><div><div class="eyebrow">ADMINISTRACIÓN</div><h1 id="page-title">Inicio</h1></div><div class="user-chip"><span class="online"></span> Panel privado <form method="post" action="/logout" class="logout-form"><button type="submit" class="logout-link">Salir</button></form></div></header>
     <section id="page-home" class="page">
       <div class="welcome"><div><div class="eyebrow light">TU NEGOCIO, MÁS SIMPLE</div><h2>Promociones sin perder tiempo.</h2><p>Administrá tus contactos y compartí novedades desde un solo lugar.</p></div><div class="welcome-mark">✦</div></div>
       <div class="stats">
@@ -42,21 +42,21 @@
         <div class="card"><h3>Agregar cliente</h3><form id="add-contact"><label>Nombre<input name="name" placeholder="Nombre y apellido"></label><label>Teléfono con código de país<input name="phone" placeholder="5493511234567" required></label><label>DNI (opcional)<input name="dni" placeholder="DNI"></label><label class="check"><input type="checkbox" name="optIn"> Tiene autorización para recibir promociones</label><button class="primary">Guardar cliente</button></form></div>
         <div class="card"><h3>Importar clientes</h3><p class="muted">Subí un archivo CSV con encabezados: nombre, telefono, dni, optin.</p><form id="import-form"><label>Archivo CSV<input type="file" name="file" accept=".csv,text/csv" required></label><button class="secondary">Importar CSV</button></form><div class="hint">Los contactos importados sin una columna <code>optin</code> afirmativa quedan deshabilitados para promociones.</div><a href="/ejemplo-clientes.csv" download class="text-link">Descargar CSV de ejemplo</a></div>
       </div>
-      <div class="card table-card"><div class="table-title"><h3>Lista de clientes</h3><input id="contact-search" placeholder="Buscar nombre o teléfono..."></div><div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Teléfono</th><th>Autorizado</th><th>Acciones</th></tr></thead><tbody id="contacts-body"></tbody></table></div></div>
+      <div class="card table-card"><div class="table-title"><h3>Lista de clientes</h3><input id="contact-search" placeholder="Buscar nombre, teléfono o DNI..."></div><div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Teléfono</th><th>DNI</th><th>Autorizado</th><th>Acciones</th></tr></thead><tbody id="contacts-body"></tbody></table></div></div>
     </section>
 
     <section id="page-send" class="page hidden">
       <div class="section-head"><div><div class="eyebrow">MENSAJES</div><h2>Enviar promoción</h2><p>Seleccioná los clientes autorizados y prepará tu mensaje.</p></div></div>
       <div class="two-col send-layout">
-        <div class="card"><h3>1. Contenido</h3><label>Tipo de mensaje<select id="send-type"><option value="image">Imagen</option><option value="video">Video MP4</option><option value="text">Solo texto</option></select></label><label id="send-file-wrap">Archivo<input type="file" id="send-file" accept="image/*"></label><label>Texto o descripción<textarea id="send-text" rows="4" placeholder="Escribí el mensaje que acompaña la promoción..."></textarea></label><div class="hint">Imágenes habituales: JPG o PNG. Videos: MP4. Elegí archivos livianos para facilitar el envío.</div></div>
-        <div class="card"><h3>2. Destinatarios</h3><div class="select-tools"><button id="select-all" class="text-button">Seleccionar todos</button><button id="select-none" class="text-button">Quitar selección</button></div><div id="send-recipients" class="recipient-list"></div><div class="count-line"><span>Seleccionados autorizados</span><strong id="selected-count">0</strong></div><button id="send-button" class="primary full">Enviar promoción</button><p class="tiny">Los mensajes se procesan uno por uno. Revisá cuidadosamente la selección antes de confirmar.</p></div>
+        <div class="card"><h3>1. Contenido</h3><label>Tipo de mensaje<select id="send-type"><option value="image">Imagen</option><option value="video">Video MP4</option><option value="text">Solo texto</option></select></label><label id="send-file-wrap">Archivo<input type="file" id="send-file" accept="image/*"></label><label>Texto o descripción<textarea id="send-text" rows="4" placeholder="Escribí el mensaje que acompaña la promoción..."></textarea></label><div class="format-toolbar" data-format-target="send-text"><button type="button" data-fmt="bold" title="Negrita"><b>N</b></button><button type="button" data-fmt="italic" title="Cursiva"><i>C</i></button><button type="button" data-fmt="strike" title="Tachado"><s>T</s></button><button type="button" data-fmt="mono" title="Monoespaciado">{ }</button><button type="button" data-fmt="quote" title="Cita">❝</button><button type="button" data-fmt="bullets" title="Lista con viñetas">• Lista</button><button type="button" data-fmt="numbers" title="Lista numerada">1. Lista</button><button type="button" data-fmt="title" title="Título (negrita en su propia línea)">Título</button><button type="button" data-fmt="subtitle" title="Subtítulo (cursiva en su propia línea)">Subtítulo</button></div><div class="format-preview" data-preview-for="send-text"></div><div class="char-count" data-count-for="send-text"></div><div class="hint">Imágenes habituales: JPG o PNG. Videos: MP4. Elegí archivos livianos para facilitar el envío. Usá la barra de formato para dar estilo al texto y revisá la vista previa antes de enviar.</div></div>
+        <div class="card"><h3>2. Destinatarios</h3><input id="recipient-search" class="recipient-search" placeholder="Buscar autorizado por nombre o teléfono..."><div class="select-tools"><button id="select-all" class="text-button">Seleccionar visibles</button><button id="select-none" class="text-button">Quitar selección</button></div><div id="send-recipients" class="recipient-list"></div><div class="count-line"><span id="recipient-summary">Seleccionados autorizados</span><strong id="selected-count">0</strong></div><button id="send-button" class="primary full">Enviar promoción</button><p class="tiny">Los mensajes se procesan uno por uno. Revisá cuidadosamente la selección antes de confirmar.</p></div>
       </div>
       <div id="send-result" class="result hidden"></div>
     </section>
 
     <section id="page-status" class="page hidden">
       <div class="section-head"><div><div class="eyebrow">ESTADOS</div><h2>Publicar en mi estado</h2><p>Compartí una imagen, video o texto en el Estado de WhatsApp de la cuenta conectada.</p></div></div>
-      <div class="card narrow"><label>Tipo de estado<select id="status-type"><option value="image">Imagen</option><option value="video">Video MP4</option><option value="text">Texto</option></select></label><label id="status-file-wrap">Archivo<input id="status-file" type="file" accept="image/*"></label><label>Texto o descripción<textarea id="status-text" rows="4" placeholder="Texto del estado o descripción de la imagen..."></textarea></label><div class="hint">El estado se publica desde el número conectado. La visibilidad depende de la configuración de privacidad de WhatsApp.</div><button id="status-button" class="primary">Publicar estado</button></div>
+      <div class="card narrow"><label>Tipo de estado<select id="status-type"><option value="image">Imagen</option><option value="video">Video MP4</option><option value="text">Texto</option></select></label><label id="status-file-wrap">Archivo<input id="status-file" type="file" accept="image/*"></label><label>Texto o descripción<textarea id="status-text" rows="4" placeholder="Texto del estado o descripción de la imagen..."></textarea></label><div class="format-toolbar" data-format-target="status-text"><button type="button" data-fmt="bold" title="Negrita"><b>N</b></button><button type="button" data-fmt="italic" title="Cursiva"><i>C</i></button><button type="button" data-fmt="strike" title="Tachado"><s>T</s></button><button type="button" data-fmt="mono" title="Monoespaciado">{ }</button><button type="button" data-fmt="quote" title="Cita">❝</button><button type="button" data-fmt="bullets" title="Lista con viñetas">• Lista</button><button type="button" data-fmt="numbers" title="Lista numerada">1. Lista</button><button type="button" data-fmt="title" title="Título (negrita en su propia línea)">Título</button><button type="button" data-fmt="subtitle" title="Subtítulo (cursiva en su propia línea)">Subtítulo</button></div><div class="format-preview" data-preview-for="status-text"></div><div class="char-count" data-count-for="status-text"></div><div class="hint">El estado se publica desde el número conectado. La visibilidad depende de la configuración de privacidad de WhatsApp. Usá la barra de formato y revisá la vista previa antes de publicar.</div><button id="status-button" class="primary">Publicar estado</button></div>
       <div id="status-result" class="result hidden"></div>
     </section>
 
@@ -71,7 +71,20 @@
     </section>
     <footer>PromoPanel Lite · Uso interno</footer>
   </main>
-  <div id="toast" class="toast"></div>
+  <div id="edit-modal" class="modal hidden">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+      <h3 id="edit-modal-title">Editar cliente</h3>
+      <form id="edit-contact">
+        <input type="hidden" name="id">
+        <label>Nombre<input name="name" placeholder="Nombre y apellido"></label>
+        <label>Teléfono con código de país<input name="phone" placeholder="5493511234567" required></label>
+        <label>DNI (opcional)<input name="dni" placeholder="DNI"></label>
+        <label class="check"><input type="checkbox" name="optIn"> Tiene autorización para recibir promociones</label>
+        <div class="modal-actions"><button type="button" class="secondary" id="edit-cancel">Cancelar</button><button type="submit" class="primary">Guardar cambios</button></div>
+      </form>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/app.js"></script>
 </body>
 </html>

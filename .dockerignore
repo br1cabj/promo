@@ -1,0 +1,23 @@
+node_modules
+npm-debug.log*
+
+# Variables de entorno y secretos
+.env
+.env.*
+!.env.example
+
+# Datos y archivos generados en runtime
+data
+uploads
+
+# Control de versiones y metadatos
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Documentación y pruebas (no necesarias en la imagen)
+README.md
+*.md
+test

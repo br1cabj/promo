@@ -4,15 +4,21 @@
   "private": true,
   "description": "Panel liviano para administrar contactos y enviar mensajes y estados mediante Evolution API",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "lint": "node --check server.js && node --check lib/db.js && node --check lib/crypto.js && node --check lib/phone.js && node --check public/app.js"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=24"
+  },
   "dependencies": {
     "axios": "^1.7.9",
-    "csv-parse": "^5.6.0",
+    "compression": "^1.8.2",
+    "csv-parse": "^7.0.3",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "express-basic-auth": "^1.2.1",
-    "multer": "^1.4.5-lts.1"
+    "libphonenumber-js": "^1.13.16",
+    "multer": "^2.5.0"
   }
 }
