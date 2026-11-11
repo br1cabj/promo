@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PromoPanel Lite</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-icon">✦</span><span>PromoPanel <small>LITE</small></span></div>
+    <nav>
+      <button class="nav active" data-page="home">▦ <span>Inicio</span></button>
+      <button class="nav" data-page="contacts">♙ <span>Clientes</span></button>
+      <button class="nav" data-page="send">➤ <span>Enviar mensaje</span></button>
+      <button class="nav" data-page="status">◉ <span>Estados</span></button>
+      <button class="nav" data-page="history">◷ <span>Historial</span></button>
+      <button class="nav" data-page="connection">⌁ <span>WhatsApp</span></button>
+    </nav>
+    <div class="side-note">Herramienta privada<br>de promociones</div>
+  </aside>
+  <main>
+    <header><div><div class="eyebrow">ADMINISTRACIÓN</div><h1 id="page-title">Inicio</h1></div><div class="user-chip"><span class="online"></span> Panel privado</div></header>
+    <section id="page-home" class="page">
+      <div class="welcome"><div><div class="eyebrow light">TU NEGOCIO, MÁS SIMPLE</div><h2>Promociones sin perder tiempo.</h2><p>Administrá tus contactos y compartí novedades desde un solo lugar.</p></div><div class="welcome-mark">✦</div></div>
+      <div class="stats">
+        <article class="stat"><span>CLIENTES</span><strong id="stat-total">0</strong><small>Contactos cargados</small></article>
+        <article class="stat"><span>HABILITADOS</span><strong id="stat-optin">0</strong><small>Con autorización promocional</small></article>
+        <article class="stat"><span>REGISTROS</span><strong id="stat-history">0</strong><small>Actividad guardada</small></article>
+      </div>
+      <div class="section-head"><div><div class="eyebrow">ACCIONES RÁPIDAS</div><h2>¿Qué querés hacer?</h2></div></div>
+      <div class="quick-grid">
+        <button class="quick" data-go="contacts"><b>＋</b><strong>Agregar clientes</strong><span>Cargar o importar contactos</span></button>
+        <button class="quick" data-go="send"><b>➤</b><strong>Enviar promoción</strong><span>Texto, imagen o video</span></button>
+        <button class="quick" data-go="status"><b>◉</b><strong>Publicar un estado</strong><span>Compartir una novedad</span></button>
+      </div>
+      <div class="notice"><strong>Antes de enviar</strong><p>Usá este panel únicamente con personas que aceptaron recibir comunicaciones. Respetá las bajas y las políticas de WhatsApp. La conexión no oficial puede provocar restricciones en la cuenta.</p></div>
+    </section>
+
+    <section id="page-contacts" class="page hidden">
+      <div class="section-head"><div><div class="eyebrow">AGENDA</div><h2>Clientes</h2><p>Importá un CSV o agregá contactos manualmente.</p></div></div>
+      <div class="two-col">
+        <div class="card"><h3>Agregar cliente</h3><form id="add-contact"><label>Nombre<input name="name" placeholder="Nombre y apellido"></label><label>Teléfono con código de país<input name="phone" placeholder="5493511234567" required></label><label>DNI (opcional)<input name="dni" placeholder="DNI"></label><label class="check"><input type="checkbox" name="optIn"> Tiene autorización para recibir promociones</label><button class="primary">Guardar cliente</button></form></div>
+        <div class="card"><h3>Importar clientes</h3><p class="muted">Subí un archivo CSV con encabezados: nombre, telefono, dni, optin.</p><form id="import-form"><label>Archivo CSV<input type="file" name="file" accept=".csv,text/csv" required></label><button class="secondary">Importar CSV</button></form><div class="hint">Los contactos importados sin una columna <code>optin</code> afirmativa quedan deshabilitados para promociones.</div><a href="/ejemplo-clientes.csv" download class="text-link">Descargar CSV de ejemplo</a></div>
+      </div>
+      <div class="card table-card"><div class="table-title"><h3>Lista de clientes</h3><input id="contact-search" placeholder="Buscar nombre o teléfono..."></div><div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Teléfono</th><th>Autorizado</th><th>Acciones</th></tr></thead><tbody id="contacts-body"></tbody></table></div></div>
+    </section>
+
+    <section id="page-send" class="page hidden">
+      <div class="section-head"><div><div class="eyebrow">MENSAJES</div><h2>Enviar promoción</h2><p>Seleccioná los clientes autorizados y prepará tu mensaje.</p></div></div>
+      <div class="two-col send-layout">
+        <div class="card"><h3>1. Contenido</h3><label>Tipo de mensaje<select id="send-type"><option value="image">Imagen</option><option value="video">Video MP4</option><option value="text">Solo texto</option></select></label><label id="send-file-wrap">Archivo<input type="file" id="send-file" accept="image/*"></label><label>Texto o descripción<textarea id="send-text" rows="4" placeholder="Escribí el mensaje que acompaña la promoción..."></textarea></label><div class="hint">Imágenes habituales: JPG o PNG. Videos: MP4. Elegí archivos livianos para facilitar el envío.</div></div>
+        <div class="card"><h3>2. Destinatarios</h3><div class="select-tools"><button id="select-all" class="text-button">Seleccionar todos</button><button id="select-none" class="text-button">Quitar selección</button></div><div id="send-recipients" class="recipient-list"></div><div class="count-line"><span>Seleccionados autorizados</span><strong id="selected-count">0</strong></div><button id="send-button" class="primary full">Enviar promoción</button><p class="tiny">Los mensajes se procesan uno por uno. Revisá cuidadosamente la selección antes de confirmar.</p></div>
+      </div>
+      <div id="send-result" class="result hidden"></div>
+    </section>
+
+    <section id="page-status" class="page hidden">
+      <div class="section-head"><div><div class="eyebrow">ESTADOS</div><h2>Publicar en mi estado</h2><p>Compartí una imagen, video o texto en el Estado de WhatsApp de la cuenta conectada.</p></div></div>
+      <div class="card narrow"><label>Tipo de estado<select id="status-type"><option value="image">Imagen</option><option value="video">Video MP4</option><option value="text">Texto</option></select></label><label id="status-file-wrap">Archivo<input id="status-file" type="file" accept="image/*"></label><label>Texto o descripción<textarea id="status-text" rows="4" placeholder="Texto del estado o descripción de la imagen..."></textarea></label><div class="hint">El estado se publica desde el número conectado. La visibilidad depende de la configuración de privacidad de WhatsApp.</div><button id="status-button" class="primary">Publicar estado</button></div>
+      <div id="status-result" class="result hidden"></div>
+    </section>
+
+    <section id="page-history" class="page hidden">
+      <div class="section-head"><div><div class="eyebrow">ACTIVIDAD</div><h2>Historial</h2><p>Últimas operaciones registradas por el panel.</p></div></div>
+      <div class="card table-card"><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Acción</th><th>Cliente / resultado</th><th>Estado</th></tr></thead><tbody id="history-body"></tbody></table></div></div>
+    </section>
+
+    <section id="page-connection" class="page hidden">
+      <div class="section-head"><div><div class="eyebrow">CONFIGURACIÓN</div><h2>Conexión de WhatsApp</h2><p>Vinculá la instancia configurada en Evolution API.</p></div></div>
+      <div class="card narrow"><div class="connection-row"><span class="status-dot" id="connection-dot"></span><div><strong id="connection-title">Consultando conexión...</strong><p id="connection-detail" class="muted">Esperá un momento.</p></div></div><button id="refresh-connection" class="secondary">Actualizar estado</button><button id="connect-button" class="primary">Mostrar código QR</button><div id="qr-box" class="qr-box hidden"><img id="qr-image" alt="Código QR de WhatsApp"><p>En WhatsApp, abrí Dispositivos vinculados y escaneá este código.</p></div><div class="hint">La URL, clave API y nombre de instancia se configuran en el archivo .env del servidor. No compartas esos datos.</div></div>
+    </section>
+    <footer>PromoPanel Lite · Uso interno</footer>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
