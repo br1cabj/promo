@@ -21,3 +21,24 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
 .char-count.warn{color:#a15b5b;font-weight:700}
 .recipient-search{margin-bottom:9px}
 .format-toolbar button:focus-visible,.emoji-item:focus-visible,.emoji-btn:focus-visible,.nav:focus-visible,.primary:focus-visible,.secondary:focus-visible,.small-btn:focus-visible,.text-button:focus-visible,.logout-link:focus-visible{outline:2px solid #67ae89;outline-offset:1px}
+
+/* ---- Ajustes para celulares (van al final para ganar en cascada) ---- */
+@media(max-width:650px){
+  /* El aviso sube por encima de la barra inferior: no la tapa ni bloquea toques */
+  .toast{left:12px;right:12px;bottom:74px}
+  /* Selector de emojis como hoja inferior: nunca se desborda del ancho de pantalla */
+  .emoji-panel{position:fixed;top:auto;left:12px;right:12px;bottom:74px;width:auto;max-height:46vh}
+  .emoji-item{font-size:22px;padding:7px 0}
+  /* Objetivos táctiles cómodos */
+  .small-btn{padding:8px 10px;margin-right:6px;border:1px solid #dfe7e2;border-radius:7px;font-size:12px;background:#fff}
+  .text-button{padding:7px 2px}
+  .logout-link{padding:7px 5px}
+  .text-link{display:inline-block;padding:5px 0}
+  input[type=checkbox]{width:19px;height:19px}
+  .format-toolbar button,.emoji-btn{min-width:36px;padding:7px 9px}
+  .recipient{padding:9px 11px}
+  .card{padding:16px}
+  .modal{padding:12px}
+  .modal-card{padding:17px;max-height:86vh}
+}
+

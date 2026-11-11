@@ -86,6 +86,7 @@ El set está **curado a propósito**: usa emojis antiguos y muy extendidos (Unic
 - **Prevención de doble envío**: los botones de guardar, importar y editar se deshabilitan mientras la operación está en curso.
 - **Deshacer al eliminar**: al borrar un cliente aparece un aviso con el botón **Deshacer** durante unos segundos; restaura el contacto con sus datos (nombre, teléfono, DNI y autorización).
 - **Teclado y accesibilidad**: `Esc` cierra el modal y el selector de emojis; los botones de formato y emoji tienen etiquetas `aria`; el aviso (toast) se anuncia con `aria-live`.
+- **Pensado para celulares**: la barra de navegación queda fija abajo; el selector de emojis se abre como una hoja inferior (nunca se sale de la pantalla) y se cierra al elegir; el aviso con **Deshacer** aparece por encima de la barra para no taparla; los botones de acción de cada cliente y los campos son más grandes para tocar con el dedo.
 
 ## Datos y almacenamiento
 
