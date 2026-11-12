@@ -1,6 +1,8 @@
 FROM node:24-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+# Límite de heap para no agotar la RAM de un VPS chico (se puede subir por env).
+ENV NODE_OPTIONS=--max-old-space-size=384
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY . .

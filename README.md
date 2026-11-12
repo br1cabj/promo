@@ -41,11 +41,74 @@ docker compose up -d --build
 
 En producción, publicá el servicio detrás de un proxy HTTPS (por ejemplo, el proxy de Coolify). No expongas el puerto 3000 directamente a Internet sin HTTPS.
 
-## Instalación en Coolify
+## Despliegue en VPS con Coolify
 
-La opción más simple es subir el proyecto a un repositorio Git privado y crear un recurso Docker Compose o aplicación Dockerfile en Coolify. Configurá las variables de entorno del `.env` y conservá el volumen persistente `./data`.
+La app está pensada para un VPS chico: es **un solo contenedor liviano** (Node + SQLite, sin base de datos externa), con healthcheck y consumo de memoria acotado (el `Dockerfile` limita el heap de Node a 384 MB).
 
-Si Evolution API está en otro recurso/stack, asegurate de que ambos contenedores compartan una red Docker y usá su nombre de servicio como `EVOLUTION_URL`. Si no comparten red, usá una URL accesible desde el contenedor PromoPanel.
+> **Recomendado:** crear una **Application** con build pack **Dockerfile** (no Docker Compose). Es más simple y Coolify gestiona puerto, dominio y volumen desde la interfaz.
+
+### 1. Subir el código a GitHub
+Usá un repositorio **privado**. El proyecto ya trae `.gitignore` y `.dockerignore` listos: nunca subas `.env` ni `data/`.
+
+### 2. Conectar GitHub en Coolify
+Coolify → **Keys & Tokens** → conectá tu cuenta (GitHub App o Deploy Key privada).
+
+### 3. Crear la aplicación
+1. **Projects** → tu proyecto → **New Resource** → **Application**.
+2. Origen: **Private Repository (GitHub)** → elegí el repo → rama `main`.
+3. **Build Pack**: `Dockerfile`.
+4. **Base Directory**: `/` (el `Dockerfile` está en la raíz).
+
+### 4. Puerto y dominio
+- **Ports Exposes**: `3000`.
+- **Domains**: `https://panel.tudominio.com` (Coolify emite el certificado Let's Encrypt solo). Apuntá el DNS del subdominio a la IP del VPS antes de desplegar.
+- No expongas el puerto 3000 a Internet: dejá que el proxy de Coolify maneje el HTTPS.
+
+### 5. Variables de entorno
+En **Environment Variables** de la app:
+
+| Variable | Valor |
+|---|---|
+| `PANEL_USER` | tu usuario |
+| `PANEL_PASSWORD` | contraseña larga y única |
+| `ENCRYPTION_KEY` | 64 caracteres hex (ver abajo) |
+| `DEFAULT_COUNTRY` | `AR` (o tu país) |
+| `EVOLUTION_URL` | URL de tu Evolution API |
+| `EVOLUTION_API_KEY` | tu API key |
+| `EVOLUTION_INSTANCE` | nombre exacto de la instancia |
+| `TRUST_PROXY` | `true` (Coolify usa proxy inverso) |
+| `SESSION_HOURS` | `12` |
+
+Generá la clave de cifrado con:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Para un VPS chico conviene bajar los límites de subida (opcionales):
+`MAX_UPLOAD_MB=10`, `MAX_TOTAL_UPLOAD_MB=20`, `MAX_SEND_FILES=5`.
+
+### 6. Almacenamiento persistente
+**Persistent Storage** → agregá un volumen:
+- **Name**: `promopanel-data`
+- **Destination**: `/app/data`
+
+Ahí viven la base SQLite, la clave (si no la definís por env) y los borradores. **Sin este volumen perdés los datos en cada redeploy.**
+
+### 7. Desplegar
+- **Deploy**. Mirá los **Logs**: deberías ver `PromoPanel Lite escuchando en puerto 3000`.
+- Abrí `https://panel.tudominio.com` e ingresá con `PANEL_USER` / `PANEL_PASSWORD`.
+
+### 8. Conectar con Evolution API
+- **Mismo VPS / mismo Coolify**: usá la URL interna, p. ej. `http://evolution-api:8080`, y conectá ambos recursos a la **misma red** de Coolify.
+- **Otra máquina** (p. ej. tu PC): usá una URL accesible desde el contenedor (HTTPS público o `http://IP:puerto`) y permití el acceso.
+- Verificá el estado en la página **WhatsApp** del panel. Si la instancia ya está conectada, **no hace falta reescanear el QR**.
+
+### 9. Copias de seguridad
+- Respaldá el volumen `promopanel-data` (o al menos `promopanel.db` + `data/.key`).
+- Guardá `ENCRYPTION_KEY` aparte: sin ella, los datos cifrados no se recuperan.
+
+### Alternativa: recurso Docker Compose
+Si preferís usar el `docker-compose.yml`, creá un recurso **Docker Compose** apuntando a ese archivo (sin `docker-compose.local.yml`, que es solo para pruebas locales). Vas a necesitar montar el volumen persistente en `/app/data` y cargar las mismas variables.
 
 ## Importar contactos
 
