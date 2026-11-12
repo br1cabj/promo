@@ -27,6 +27,7 @@ Panel web liviano para gestionar contactos y enviar mensajes/estados mediante Ev
    - `SEND_DELAY_MS`: pausa entre envíos (por defecto `1500`).
    - `MAX_UPLOAD_MB`: tamaño máximo por archivo adjunto (por defecto `25`).
    - `MAX_SEND_FILES`: máximo de imágenes/videos por campaña (por defecto `10`).
+   - `MAX_TOTAL_UPLOAD_MB`: peso máximo del conjunto de archivos de una campaña (por defecto `60`).
    - `TRUST_PROXY`: dejalo en `false` salvo que estés detrás de un proxy inverso; ahí poné `true`.
 5. Ejecutá:
 

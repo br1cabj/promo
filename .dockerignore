@@ -10,12 +10,17 @@ npm-debug.log*
 data
 uploads
 
+# Datos personales de prueba y stack local (no deben entrar a la imagen)
+ejemplo-contactos.csv
+evolution-local
+
 # Control de versiones y metadatos
 .git
 .gitignore
 .dockerignore
 Dockerfile
 docker-compose.yml
+docker-compose.local.yml
 
 # Documentación y pruebas (no necesarias en la imagen)
 README.md

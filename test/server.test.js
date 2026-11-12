@@ -252,6 +252,24 @@ test("rechaza envíos si Evolution API no está configurada", async () => {
   assert.equal(r.status, 400);
 });
 
+test("un estado con tipo inválido devuelve 400 (no 502)", async () => {
+  const r = await fetch(`${base}/api/status`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ type: "audio", text: "hola" })
+  });
+  assert.equal(r.status, 400);
+});
+
+test("un estado sin Evolution API configurada devuelve 400 (no 502)", async () => {
+  const r = await fetch(`${base}/api/status`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ type: "text", text: "Estado de prueba" })
+  });
+  assert.equal(r.status, 400);
+});
+
 test("guarda y recupera un borrador en el servidor", async () => {
   const put = await fetch(`${base}/api/drafts/send`, {
     method: "PUT",

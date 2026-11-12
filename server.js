@@ -56,6 +56,7 @@ const SESSION_HOURS = Math.max(1, Number(process.env.SESSION_HOURS || 12));
 const SEND_DELAY_MS = Math.max(0, Number(process.env.SEND_DELAY_MS ?? 1500));
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 25);
 const MAX_SEND_FILES = Math.max(1, Number(process.env.MAX_SEND_FILES || 10));
+const MAX_TOTAL_UPLOAD_MB = Number(process.env.MAX_TOTAL_UPLOAD_MB || 60);
 
 // ---------------------------------------------------------------------------
 // Sesiones (token aleatorio validado contra un Map en memoria; logout real)
@@ -258,6 +259,9 @@ const upload = multer({
   limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024, files: MAX_SEND_FILES }
 });
 
+// Suma de tamaños de los archivos subidos, para acotar el total en memoria.
+const totalUploadBytes = (files) => (files || []).reduce((sum, f) => sum + (f.size || f.buffer?.length || 0), 0);
+
 let evoAgent = null;
 function evoClient() {
   if (!configured()) throw new Error("Falta configurar Evolution API en el archivo .env");
@@ -441,6 +445,9 @@ app.post("/api/send", upload.array("files", MAX_SEND_FILES), (req, res) => {
     if (type === "text" && !cleanText) return res.status(400).json({ error: "Escribí un mensaje." });
     const files = req.files || [];
     if (type !== "text" && !files.length) return res.status(400).json({ error: "Adjuntá al menos una imagen o video." });
+    if (totalUploadBytes(files) > MAX_TOTAL_UPLOAD_MB * 1024 * 1024) {
+      return res.status(413).json({ error: `El total de archivos supera el límite de ${MAX_TOTAL_UPLOAD_MB} MB.` });
+    }
 
     let media = [];
     if (type !== "text") {
@@ -469,8 +476,9 @@ app.get("/api/jobs/:id", (req, res) => {
 });
 
 app.post("/api/status", upload.single("file"), async (req, res) => {
+  const type = req.body.type;
   try {
-    const type = req.body.type;
+    if (!configured()) return res.status(400).json({ error: "Falta configurar Evolution API en el archivo .env" });
     const text = cut(req.body.text, MAX_TEXT);
     if (!["text", "image", "video"].includes(type)) return res.status(400).json({ error: "Tipo de estado no válido." });
     if (type === "text" && !text) return res.status(400).json({ error: "Escribí el texto del estado." });
@@ -482,8 +490,8 @@ app.post("/api/status", upload.single("file"), async (req, res) => {
       payload.font = Number(req.body.font || 1);
     } else {
       const mime = req.file.mimetype;
-      if (type === "image" && !mime.startsWith("image/")) throw new Error("El archivo no parece ser una imagen.");
-      if (type === "video" && mime !== "video/mp4") throw new Error("Para estado de video, usá MP4.");
+      if (type === "image" && !mime.startsWith("image/")) return res.status(400).json({ error: "El archivo no parece ser una imagen." });
+      if (type === "video" && mime !== "video/mp4") return res.status(400).json({ error: "Para estado de video, usá MP4." });
       payload.content = `data:${mime};base64,${req.file.buffer.toString("base64")}`;
       payload.caption = text;
     }
@@ -491,7 +499,7 @@ app.post("/api/status", upload.single("file"), async (req, res) => {
     addHistory({ kind: "status", type, ok: true, response: r.data });
     res.json({ ok: true, data: r.data });
   } catch (e) {
-    addHistory({ kind: "status", type: req.body.type, ok: false, error: e.message });
+    addHistory({ kind: "status", type, ok: false, error: e.message });
     res.status(502).json({ error: e.response?.data?.message || e.message });
   }
 });
