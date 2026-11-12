@@ -130,6 +130,10 @@ El **DNI es opcional**. Si lo completás, debe tener 7 u 8 dígitos (se ignoran 
 
 Por seguridad, si `optin` no indica claramente que la persona aceptó recibir promociones, el contacto queda deshabilitado para envíos. Podés habilitarlo manualmente solo cuando tengas constancia de autorización.
 
+### Exportar contactos
+
+En la lista de clientes, el botón **Exportar CSV** descarga **todos** los contactos en un archivo con el mismo formato de la importación (`nombre, telefono, dni, optin`). Sirve para respaldar la agenda o moverla a otro equipo, y el archivo se puede volver a importar tal cual.
+
 ## Editar contactos
 
 Desde la página **Clientes** podés editar cualquier contacto con el botón **Editar** de la tabla: se abre un formulario para cambiar **nombre, teléfono, DNI y autorización**. La lista muestra además la columna **DNI**.
@@ -198,6 +202,7 @@ Además del borrador, podés guardar **plantillas**: mensajes ya escritos y reut
 - Publicar texto, imagen o video MP4 en el estado del número conectado (allContacts=true en Evolution API).
 - Historial local de operaciones.
 - Normalización de teléfonos y detección de duplicados por teléfono **y DNI**.
+- Exportación de la lista de contactos a CSV (mismo formato que la importación).
 - Edición de contactos (nombre, teléfono, DNI y autorización) desde la interfaz.
 - Formato de texto estilo WhatsApp (negrita, cursiva, tachado, monoespaciado, citas y listas) con vista previa en vivo y selector de emojis compatibles.
 - Borradores de redacción guardados en el servidor, disponibles desde cualquier equipo (texto, tipo y destinatarios; sin adjuntos).
