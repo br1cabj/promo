@@ -488,6 +488,29 @@ app.post("/api/status", upload.single("file"), async (req, res) => {
 
 app.get("/api/history", (req, res) => res.json(store.listHistory(150)));
 
+// Borradores de redacción (texto, tipo y destinatarios). Persisten en el
+// servidor, así están disponibles desde cualquier equipo o el celular.
+app.get("/api/drafts", (req, res) => res.json(store.listDrafts()));
+
+app.put("/api/drafts/:section", (req, res) => {
+  try {
+    const draft = store.saveDraft(req.params.section, {
+      text: req.body.text,
+      type: req.body.type,
+      recipientIds: req.body.recipientIds
+    });
+    res.json(draft);
+  } catch (e) {
+    if (e instanceof StoreError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+app.delete("/api/drafts/:section", (req, res) => {
+  store.deleteDraft(req.params.section);
+  res.json({ ok: true });
+});
+
 app.use("/api", (req, res) => res.status(404).json({ error: "Recurso no encontrado." }));
 
 // ---------------------------------------------------------------------------

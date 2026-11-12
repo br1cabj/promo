@@ -78,6 +78,16 @@ El botón **😀** abre un selector de emojis organizado por categorías (caras,
 
 El set está **curado a propósito**: usa emojis antiguos y muy extendidos (Unicode 6–9), sin secuencias combinadas (ZWJ), sin modificadores de tono de piel y sin banderas. Esto evita el problema clásico de emojis que se ven bien en iOS pero no renderizan en Android (o al revés). Aun así, el render final siempre depende de la versión de WhatsApp y del sistema del destinatario.
 
+## Borradores
+
+Mientras redactás un mensaje o un estado, el panel **guarda el borrador automáticamente en el servidor** (SQLite). Como queda en el servidor y no en el navegador, el mismo borrador está disponible desde la PC y desde el celular.
+
+- Se guardan el **texto**, el **tipo** (texto/imagen/video) y, en "Enviar mensaje", los **destinatarios** seleccionados. **No se guardan imágenes ni videos**: el navegador no puede volver a cargar un archivo por seguridad, así que solo se conserva el estado de redacción.
+- El guardado es **automático** (unos 800 ms después de que dejás de escribir) y se fuerza al salir o cambiar de pestaña. Debajo del cuadro ves el estado: "Guardando…", "Borrador guardado", "Borrador restaurado" o "Sin borrador".
+- El borrador **se mantiene después de enviar** para que puedas reutilizarlo. El botón **Vaciar borrador** lo elimina y limpia el formulario.
+- Un borrador totalmente vacío (sin texto ni destinatarios) no se guarda: se elimina solo.
+- El **texto del borrador se cifra** en reposo, igual que el teléfono y el DNI.
+
 ## Experiencia de uso
 
 - **Vista previa en vivo** y **contador de caracteres** en los cuadros de mensaje y estado (avisa si superás 1024, el límite de las descripciones de imagen/video).
@@ -85,6 +95,7 @@ El set está **curado a propósito**: usa emojis antiguos y muy extendidos (Unic
 - **Resumen de selección**: muestra cuántos elegiste sobre el total de autorizados.
 - **Prevención de doble envío**: los botones de guardar, importar y editar se deshabilitan mientras la operación está en curso.
 - **Deshacer al eliminar**: al borrar un cliente aparece un aviso con el botón **Deshacer** durante unos segundos; restaura el contacto con sus datos (nombre, teléfono, DNI y autorización).
+- **Borradores en el servidor**: el texto y los destinatarios que estás redactando se guardan solos y se restauran al volver, estés en la PC o en el celular (ver *Borradores*).
 - **Teclado y accesibilidad**: `Esc` cierra el modal y el selector de emojis; los botones de formato y emoji tienen etiquetas `aria`; el aviso (toast) se anuncia con `aria-live`.
 - **Pensado para celulares**: la barra de navegación queda fija abajo; las listas de **Clientes** e **Historial** se muestran como **tarjetas** (una por registro, con etiquetas) en lugar de una tabla con scroll horizontal; el selector de emojis se abre como una hoja inferior (nunca se sale de la pantalla) y se cierra al elegir; el aviso con **Deshacer** aparece por encima de la barra para no taparla; y todos los botones y campos tienen un tamaño táctil de ~44px.
 
@@ -92,6 +103,7 @@ El set está **curado a propósito**: usa emojis antiguos y muy extendidos (Unic
 
 - Los datos viven en **SQLite** (`data/promopanel.db`), usando el módulo `node:sqlite` integrado en Node 24 (sin dependencias nativas ni servidor de base de datos).
 - **Teléfono y DNI se guardan cifrados** con AES-256-GCM. Para detectar duplicados y garantizar la unicidad sin descifrar, se usa un **índice ciego** (HMAC-SHA256).
+- Los **borradores de redacción** también viven en la base (tabla `drafts`, uno por sección) y su texto se cifra con el mismo esquema.
 - La clave sale de `ENCRYPTION_KEY`; si no la definís, se genera y guarda en `data/.key` (con permisos restringidos). **Si perdés la clave, los datos cifrados no se pueden recuperar.**
 - La búsqueda y el filtrado se hacen en el navegador sobre los datos ya descifrados por la API, así que el cifrado no afecta la experiencia de uso.
 - **Migración automática:** si la base está vacía y existen `data/contacts.json` / `data/history.json` del formato anterior, se importan al arrancar. Los JSON **no se borran**: quedan como respaldo.
@@ -105,6 +117,7 @@ El set está **curado a propósito**: usa emojis antiguos y muy extendidos (Unic
 - Normalización de teléfonos y detección de duplicados por teléfono **y DNI**.
 - Edición de contactos (nombre, teléfono, DNI y autorización) desde la interfaz.
 - Formato de texto estilo WhatsApp (negrita, cursiva, tachado, monoespaciado, citas y listas) con vista previa en vivo y selector de emojis compatibles.
+- Borradores de redacción guardados en el servidor, disponibles desde cualquier equipo (texto, tipo y destinatarios; sin adjuntos).
 - Inicio de sesión con cookie de sesión (`HttpOnly`, `SameSite=Strict`) y cierre de sesión.
 - Envío de campañas en segundo plano con progreso en vivo; la petición HTTP responde al instante.
 - Límite de intentos de acceso y de solicitudes a la API para mitigar abuso.
@@ -136,6 +149,9 @@ El set está **curado a propósito**: usa emojis antiguos y muy extendidos (Unic
 - `GET /login`, `POST /login`, `POST /logout` — sesión del panel.
 - `POST /api/send` — inicia una campaña y devuelve `{ jobId, total }`.
 - `GET /api/jobs/{id}` — progreso y resultado de una campaña.
+- `GET /api/drafts` — lista los borradores guardados.
+- `PUT /api/drafts/{section}` — guarda el borrador de `send` o `status` (un borrador vacío lo elimina).
+- `DELETE /api/drafts/{section}` — elimina el borrador de una sección.
 
 Documentación de referencia:
 - https://github.com/EvolutionAPI/evolution-api

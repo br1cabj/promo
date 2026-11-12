@@ -252,6 +252,66 @@ test("rechaza envíos si Evolution API no está configurada", async () => {
   assert.equal(r.status, 400);
 });
 
+test("guarda y recupera un borrador en el servidor", async () => {
+  const put = await fetch(`${base}/api/drafts/send`, {
+    method: "PUT",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ text: "Promo de prueba *imperdible*", type: "text", recipientIds: [contactId] })
+  });
+  assert.equal(put.status, 200);
+  const saved = await put.json();
+  assert.equal(saved.text, "Promo de prueba *imperdible*");
+  assert.deepEqual(saved.recipientIds, [contactId]);
+
+  const list = await fetch(`${base}/api/drafts`, { headers: { cookie } });
+  assert.equal(list.status, 200);
+  const drafts = await list.json();
+  const send = drafts.find((d) => d.section === "send");
+  assert.ok(send, "debería existir el borrador de envío");
+  assert.equal(send.text, "Promo de prueba *imperdible*");
+  assert.deepEqual(send.recipientIds, [contactId]);
+});
+
+test("el texto del borrador queda cifrado en disco", () => {
+  const files = ["promopanel.db", "promopanel.db-wal", "promopanel.db-shm"];
+  const blob = files
+    .map((f) => {
+      const p = path.join(dataDir, f);
+      return fs.existsSync(p) ? fs.readFileSync(p).toString("latin1") : "";
+    })
+    .join("");
+  assert.ok(!blob.includes("Promo de prueba"), "el texto del borrador no debería estar en texto plano");
+});
+
+test("un borrador vacío se elimina y no se guarda", async () => {
+  const put = await fetch(`${base}/api/drafts/status`, {
+    method: "PUT",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ text: "algo", type: "text" })
+  });
+  assert.equal(put.status, 200);
+
+  const clear = await fetch(`${base}/api/drafts/status`, {
+    method: "PUT",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ text: "   ", recipientIds: [] })
+  });
+  assert.equal(clear.status, 200);
+  assert.equal((await clear.json()).cleared, true);
+
+  const list = await (await fetch(`${base}/api/drafts`, { headers: { cookie } })).json();
+  assert.ok(!list.some((d) => d.section === "status"), "el borrador vacío no debe persistir");
+});
+
+test("rechaza una sección de borrador inválida", async () => {
+  const r = await fetch(`${base}/api/drafts/otra`, {
+    method: "PUT",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ text: "x" })
+  });
+  assert.equal(r.status, 400);
+});
+
 test("el logout por POST invalida la sesión", async () => {
   const out = await fetch(`${base}/logout`, { method: "POST", headers: { cookie }, redirect: "manual" });
   assert.equal(out.status, 302);

@@ -19,6 +19,9 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
 .emoji-item:hover{background:var(--pale)}
 .char-count{font-size:11px;color:var(--muted);text-align:right;margin:-6px 0 12px}
 .char-count.warn{color:#a15b5b;font-weight:700}
+.draft-line{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-6px 0 12px}
+.draft-status{font-size:11px;color:var(--muted)}
+.draft-status.saved{color:var(--green);font-weight:650}
 .recipient-search{margin-bottom:9px}
 .format-toolbar button:focus-visible,.emoji-item:focus-visible,.emoji-btn:focus-visible,.nav:focus-visible,.primary:focus-visible,.secondary:focus-visible,.small-btn:focus-visible,.text-button:focus-visible,.logout-link:focus-visible{outline:2px solid #67ae89;outline-offset:1px}
 
