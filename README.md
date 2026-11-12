@@ -99,7 +99,13 @@ Ahí viven la base SQLite, la clave (si no la definís por env) y los borradores
 - Abrí `https://panel.tudominio.com` e ingresá con `PANEL_USER` / `PANEL_PASSWORD`.
 
 ### 8. Conectar con Evolution API
-- **Mismo VPS / mismo Coolify**: usá la URL interna, p. ej. `http://evolution-api:8080`, y conectá ambos recursos a la **misma red** de Coolify.
+- **Mismo VPS / mismo Coolify** (recomendado): usá la URL interna, p. ej. `EVOLUTION_URL=http://evolution-api:8080`.
+  1. Poné los dos recursos (panel y Evolution) en el **mismo proyecto/entorno** de Coolify, o conectalos a la **misma red** desde la pestaña *Network* de cada recurso.
+  2. El nombre de host es el **nombre del servicio/contenedor** de Evolution (en su `docker-compose.yml` suele ser `evolution-api`). Para confirmarlo: `docker ps --format '{{.Names}}'`.
+  3. Probá la conexión desde el panel:
+     ```bash
+     docker exec <contenedor-del-panel> node -e "fetch('http://evolution-api:8080').then(r=>console.log(r.status)).catch(e=>console.log('ERROR',e.message))"
+     ```
 - **Otra máquina** (p. ej. tu PC): usá una URL accesible desde el contenedor (HTTPS público o `http://IP:puerto`) y permití el acceso.
 - Verificá el estado en la página **WhatsApp** del panel. Si la instancia ya está conectada, **no hace falta reescanear el QR**.
 
