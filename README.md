@@ -1,6 +1,6 @@
 # PromoPanel Lite
 
-Panel web liviano para gestionar contactos y enviar mensajes/estados mediante Evolution API. Incluye importación CSV, selección de clientes autorizados, texto, imágenes, video MP4, historial y conexión QR.
+Panel web liviano para gestionar contactos y enviar mensajes/estados mediante Evolution API. Incluye importación CSV, selección de clientes autorizados, texto, imágenes, video MP4, historial y conexión por QR o código de vinculación.
 
 > **Importante:** Evolution API con conexión WhatsApp Web es una integración no oficial. Meta puede restringir cuentas que utilicen clientes no oficiales o envíen mensajes no deseados. No hay garantía de evitar bloqueos. Usá únicamente contactos que hayan dado consentimiento y respetá las bajas. La publicación de estados y los formatos aceptados pueden variar según la versión de Evolution API y WhatsApp.
 
@@ -109,6 +109,7 @@ Ahí viven la base SQLite, la clave (si no la definís por env) y los borradores
      ```
 - **Otra máquina** (p. ej. tu PC): usá una URL accesible desde el contenedor (HTTPS público o `http://IP:puerto`) y permití el acceso.
 - Verificá el estado en la página **WhatsApp** del panel. Si la instancia ya está conectada, **no hace falta reescanear el QR**.
+- **Vincular desde el celular (sin escanear):** si estás en el celular, el QR queda en la misma pantalla y no podés escanearlo. Para eso está la **Opción 1 · Código de vinculación**: en la página **WhatsApp** escribí el número a vincular (con código de país, solo dígitos) y el panel te devuelve un **código de 8 dígitos**. En WhatsApp del teléfono: *Dispositivos vinculados → Vincular un dispositivo → Vincular con número de teléfono*, y escribí ese código. El **código QR** (Opción 2) queda para cuando tenés **otra pantalla** (PC o tablet) donde mostrarlo y lo escaneás con el teléfono.
 
 ### 9. Copias de seguridad
 - Respaldá el volumen `promopanel-data` (o al menos `promopanel.db` + `data/.key`).
@@ -223,7 +224,7 @@ Además del borrador, podés guardar **plantillas**: mensajes ya escritos y reut
 - El panel registra la respuesta de la API, pero no recibe confirmaciones finales de entrega/lectura mediante webhooks.
 - Para video se limita a MP4. Respetá los límites de tamaño de tu instancia Evolution API y de WhatsApp.
 - En una campaña con imágenes/videos se envían **una por una** a cada persona (no como álbum) y hay un máximo de archivos por envío (`MAX_SEND_FILES`, 10 por defecto).
-- El QR puede requerir adaptar la lectura de respuesta según la versión de Evolution API instalada.
+- El QR o el código de vinculación pueden requerir adaptar la lectura de respuesta según la versión de Evolution API instalada. El código de vinculación solo se genera si la instancia está desconectada; si ya se generó un QR, la instancia queda en estado *connecting* y puede no devolver código.
 
 ## Endpoints Evolution API utilizados
 

@@ -67,7 +67,24 @@
 
     <section id="page-connection" class="page hidden">
       <div class="section-head"><div><div class="eyebrow">CONFIGURACIÓN</div><h2>Conexión de WhatsApp</h2><p>Vinculá la instancia configurada en Evolution API.</p></div></div>
-      <div class="card narrow"><div class="connection-row"><span class="status-dot" id="connection-dot"></span><div><strong id="connection-title">Consultando conexión...</strong><p id="connection-detail" class="muted">Esperá un momento.</p></div></div><button id="refresh-connection" class="secondary">Actualizar estado</button><button id="connect-button" class="primary">Mostrar código QR</button><div id="qr-box" class="qr-box hidden"><img id="qr-image" alt="Código QR de WhatsApp"><p>En WhatsApp, abrí Dispositivos vinculados y escaneá este código.</p></div><div class="hint">La URL, clave API y nombre de instancia se configuran en el archivo .env del servidor. No compartas esos datos.</div></div>
+      <div class="card narrow">
+        <div class="connection-row"><span class="status-dot" id="connection-dot"></span><div><strong id="connection-title">Consultando conexión...</strong><p id="connection-detail" class="muted">Esperá un momento.</p></div></div>
+        <button id="refresh-connection" class="secondary">Actualizar estado</button>
+        <div class="connect-option">
+          <h4>Opción 1 · Código de vinculación (desde este mismo celular)</h4>
+          <p class="muted">Escribí el número de WhatsApp que querés vincular (con código de país, solo dígitos). Te damos un código de 8 dígitos para escribir en WhatsApp, sin escanear nada.</p>
+          <label>Número de WhatsApp<input id="connect-phone" inputmode="numeric" autocomplete="tel" placeholder="5493511234567"></label>
+          <button id="pairing-button" class="primary" type="button">Obtener código de vinculación</button>
+          <div id="pairing-box" class="pairing-box hidden"><p class="muted">En el WhatsApp del teléfono: <strong>Dispositivos vinculados → Vincular un dispositivo → Vincular con número de teléfono</strong>, e ingresá este código:</p><div id="pairing-code" class="pairing-code">--------</div><p class="muted">El código vence en pocos minutos. Si falla, generá uno nuevo o usá el QR.</p></div>
+        </div>
+        <div class="connect-option">
+          <h4>Opción 2 · Código QR (necesitás otra pantalla)</h4>
+          <p class="muted">Abrí este panel en una computadora u otro dispositivo y escaneá el QR con el WhatsApp del teléfono.</p>
+          <button id="connect-button" class="secondary" type="button">Mostrar código QR</button>
+          <div id="qr-box" class="qr-box hidden"><img id="qr-image" alt="Código QR de WhatsApp"><p>En WhatsApp, abrí Dispositivos vinculados y escaneá este código.</p><a id="qr-download" class="text-link" download="whatsapp-qr.png">Descargar QR</a></div>
+        </div>
+        <div class="hint">La URL, clave API y nombre de instancia se configuran en el archivo .env del servidor. No compartas esos datos.</div>
+      </div>
     </section>
     <footer>PromoPanel Lite · Uso interno</footer>
   </main>

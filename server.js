@@ -468,23 +468,33 @@ app.get("/api/connection", async (req, res) => {
 });
 
 // Devuelve la conexión de la instancia. Si todavía no existe (primer arranque
-// en un servidor nuevo), la crea y devuelve el QR para vincular WhatsApp.
-async function connectOrCreate(api, instanceName) {
+// en un servidor nuevo), la crea. Si se pasa `number`, pide un código de
+// vinculación (pairing code) en vez del QR, para vincular desde el mismo celular
+// sin necesidad de escanear la pantalla.
+async function connectOrCreate(api, instanceName, number) {
   const instance = encodeURIComponent(instanceName);
+  const query = number ? `?number=${encodeURIComponent(number)}` : "";
   try {
-    return await api.get(`/instance/connect/${instance}`);
+    return await api.get(`/instance/connect/${instance}${query}`);
   } catch (e) {
     if (e.response?.status !== 404) throw e;
-    return await api.post(`/instance/create`, { instanceName, integration: "WHATSAPP-BAILEYS", qrcode: true });
+    const payload = { instanceName, integration: "WHATSAPP-BAILEYS", qrcode: true };
+    if (number) payload.number = number;
+    return await api.post(`/instance/create`, payload);
   }
 }
 
 app.post("/api/connect", async (req, res) => {
   try {
-    const r = await connectOrCreate(evoClient(), config.instance);
+    const number = String(req.body?.number || "").replace(/\D/g, "");
+    if (req.body?.number && number.length < 8) {
+      return res.status(400).json({ error: "Ingresá el número con código de país y solo dígitos. Ej: 5493511234567." });
+    }
+    const r = await connectOrCreate(evoClient(), config.instance, number || null);
     const data = r.data || {};
     const qr = data.base64 || data.qrcode?.base64 || data.qrcode || null;
-    res.json({ ok: true, qr, data });
+    const pairingCode = data.pairingCode || data.qrcode?.pairingCode || null;
+    res.json({ ok: true, qr, pairingCode, data });
   } catch (e) { res.status(502).json({ error: e.response?.data?.message || e.message }); }
 });
 

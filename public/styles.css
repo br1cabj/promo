@@ -62,4 +62,10 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
   .table-card td[data-label="Acciones"]::before{flex-basis:100%}
   .table-card td[data-label="Acciones"] .small-btn{flex:1 1 45%;margin:0}
 }
+.connect-option{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}
+.connect-option h4{font-size:13px;margin:0 0 6px}
+.connect-option>p{margin:0 0 12px}
+.pairing-box{margin-top:14px;background:var(--pale);border:1px solid #cfe0d6;border-radius:10px;padding:14px;text-align:center}
+.pairing-box .muted{margin:0 0 8px}
+.pairing-code{font:700 26px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:3px;color:var(--green);margin:10px 0;word-break:break-all}
 
