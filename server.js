@@ -438,9 +438,21 @@ app.get("/api/connection", async (req, res) => {
   }
 });
 
+// Devuelve la conexión de la instancia. Si todavía no existe (primer arranque
+// en un servidor nuevo), la crea y devuelve el QR para vincular WhatsApp.
+async function connectOrCreate(api, instanceName) {
+  const instance = encodeURIComponent(instanceName);
+  try {
+    return await api.get(`/instance/connect/${instance}`);
+  } catch (e) {
+    if (e.response?.status !== 404) throw e;
+    return await api.post(`/instance/create`, { instanceName, integration: "WHATSAPP-BAILEYS", qrcode: true });
+  }
+}
+
 app.post("/api/connect", async (req, res) => {
   try {
-    const r = await evoClient().get(`/instance/connect/${encodeURIComponent(config.instance)}`);
+    const r = await connectOrCreate(evoClient(), config.instance);
     const data = r.data || {};
     const qr = data.base64 || data.qrcode?.base64 || data.qrcode || null;
     res.json({ ok: true, qr, data });
@@ -608,3 +620,4 @@ if (require.main === module) {
 module.exports = app;
 module.exports.store = store;
 module.exports.nextSendDelay = nextSendDelay;
+module.exports.connectOrCreate = connectOrCreate;

@@ -288,6 +288,40 @@ test("la pausa entre envíos usa jitter y descansos por tanda", () => {
   assert.ok(delay(18, 100) < 60000);
 });
 
+test("crea la instancia de Evolution si todavía no existe", async () => {
+  const created = [];
+  const notFound = () => { const e = new Error("not found"); e.response = { status: 404 }; return e; };
+  const fake = {
+    get: async () => { throw notFound(); },
+    post: async (url, body) => { created.push({ url, body }); return { data: { qrcode: { base64: "abc" } } }; }
+  };
+  const r = await app.connectOrCreate(fake, "promociones");
+  assert.equal(r.data.qrcode.base64, "abc");
+  assert.equal(created.length, 1);
+  assert.equal(created[0].url, "/instance/create");
+  assert.equal(created[0].body.instanceName, "promociones");
+  assert.equal(created[0].body.integration, "WHATSAPP-BAILEYS");
+});
+
+test("no crea la instancia si ya existe", async () => {
+  let posted = false;
+  const fake = {
+    get: async () => ({ data: { instance: { state: "open" } } }),
+    post: async () => { posted = true; return { data: {} }; }
+  };
+  const r = await app.connectOrCreate(fake, "promociones");
+  assert.equal(r.data.instance.state, "open");
+  assert.equal(posted, false);
+});
+
+test("propaga el error de conexión que no sea 404", async () => {
+  const fake = {
+    get: async () => { const e = new Error("boom"); e.response = { status: 500 }; throw e; },
+    post: async () => { throw new Error("no debería crear la instancia"); }
+  };
+  await assert.rejects(() => app.connectOrCreate(fake, "promociones"), /boom/);
+});
+
 test("guarda y recupera un borrador en el servidor", async () => {
   const put = await fetch(`${base}/api/drafts/send`, {
     method: "PUT",

@@ -14,13 +14,15 @@ uploads
 ejemplo-contactos.csv
 evolution-local
 
+# Despliegue (Coolify): los compose y docs no van dentro de la imagen
+deploy
+
 # Control de versiones y metadatos
 .git
 .gitignore
 .dockerignore
 Dockerfile
-docker-compose.yml
-docker-compose.local.yml
+docker-compose*.yml
 
 # Documentación y pruebas (no necesarias en la imagen)
 README.md

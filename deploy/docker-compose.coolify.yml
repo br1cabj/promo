@@ -1,0 +1,151 @@
+# =============================================================================
+# Stack completo para Coolify (un VPS): PromoPanel + Evolution API + PostgreSQL
+# + Redis, todo en un único recurso "Docker Compose".
+#
+# Los servicios comparten la red del recurso, así que el panel habla con
+# Evolution por su nombre de servicio (http://evolution-api:8080) SIN exponer
+# Evolution a Internet. Solo el panel necesita un dominio.
+#
+# En Coolify:
+#   - Build Pack:            Docker Compose
+#   - Base Directory:        /deploy
+#   - Compose Location:      docker-compose.coolify.yml
+#   - Domains:               agregá un dominio al servicio "promopanel" (puerto 3000)
+#   - Environment Variables: cargá las de deploy/env.example
+#
+# Persistencia: los volúmenes con nombre sobreviven a los redeploys.
+# La instancia de WhatsApp se crea sola la primera vez que tocás "Conectar"
+# en la página WhatsApp del panel.
+# =============================================================================
+
+services:
+  promopanel:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      evolution-api:
+        condition: service_healthy
+    environment:
+      PORT: "3000"
+      PANEL_USER: ${PANEL_USER:?definí PANEL_USER en Coolify}
+      PANEL_PASSWORD: ${PANEL_PASSWORD:?definí PANEL_PASSWORD en Coolify}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      DEFAULT_COUNTRY: ${DEFAULT_COUNTRY:-AR}
+      # El panel habla con Evolution por la red interna del stack.
+      EVOLUTION_URL: http://evolution-api:8080
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:?definí EVOLUTION_API_KEY en Coolify}
+      EVOLUTION_INSTANCE: ${EVOLUTION_INSTANCE:-promociones}
+      TRUST_PROXY: "true"
+      SESSION_HOURS: ${SESSION_HOURS:-12}
+      # Límites pensados para un VPS chico.
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+      MAX_TOTAL_UPLOAD_MB: ${MAX_TOTAL_UPLOAD_MB:-20}
+      MAX_SEND_FILES: ${MAX_SEND_FILES:-5}
+      SEND_DELAY_MS: ${SEND_DELAY_MS:-1500}
+      SEND_DELAY_JITTER_MS: ${SEND_DELAY_JITTER_MS:-2500}
+      SEND_BATCH_SIZE: ${SEND_BATCH_SIZE:-20}
+      SEND_BATCH_PAUSE_MS: ${SEND_BATCH_PAUSE_MS:-60000}
+    volumes:
+      - promopanel_data:/app/data
+    expose:
+      - "3000"
+
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.7
+    restart: unless-stopped
+    depends_on:
+      evolution-postgres:
+        condition: service_healthy
+      evolution-redis:
+        condition: service_healthy
+    environment:
+      SERVER_TYPE: http
+      SERVER_PORT: "8080"
+      SERVER_URL: http://evolution-api:8080
+      # Debe coincidir con EVOLUTION_API_KEY del panel.
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:?definí EVOLUTION_API_KEY en Coolify}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
+      LANGUAGE: en
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USERNAME:-evolution}:${POSTGRES_PASSWORD}@evolution-postgres:5432/${POSTGRES_DATABASE:-evolution}?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: evolution
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_LABELS: "true"
+      DATABASE_SAVE_DATA_HISTORIC: "true"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://evolution-redis:6379/6
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_REDIS_SAVE_INSTANCES: "false"
+      CACHE_LOCAL_ENABLED: "false"
+      DEL_INSTANCE: "false"
+      QRCODE_LIMIT: "30"
+      CONFIG_SESSION_PHONE_CLIENT: PromoPanel
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      LOG_LEVEL: ERROR,WARN,INFO
+      LOG_COLOR: "false"
+      LOG_BAILEYS: error
+      TELEMETRY_ENABLED: "false"
+      PROMETHEUS_METRICS: "false"
+      # Integraciones que no usamos (se apagan para ahorrar recursos).
+      RABBITMQ_ENABLED: "false"
+      SQS_ENABLED: "false"
+      WEBSOCKET_ENABLED: "false"
+      OPENAI_ENABLED: "false"
+      DIFY_ENABLED: "false"
+      FLOWISE_ENABLED: "false"
+      N8N_ENABLED: "false"
+      TYPEBOT_ENABLED: "false"
+      CHATWOOT_ENABLED: "false"
+    volumes:
+      - evolution_instances:/evolution/instances
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:8080/',r=>process.exit(r.statusCode>=200&&r.statusCode<300?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+
+  evolution-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    command: ["postgres", "-c", "max_connections=200"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE:-evolution}
+      POSTGRES_USER: ${POSTGRES_USERNAME:-evolution}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definí POSTGRES_PASSWORD en Coolify}
+    volumes:
+      - evolution_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USERNAME:-evolution} -d ${POSTGRES_DATABASE:-evolution}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  evolution-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --port 6379 --appendonly yes
+    volumes:
+      - evolution_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  promopanel_data:
+  evolution_instances:
+  evolution_postgres:
+  evolution_redis:
