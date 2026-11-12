@@ -54,6 +54,11 @@ const PANEL_USER = process.env.PANEL_USER || "admin";
 const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "change-me-now";
 const SESSION_HOURS = Math.max(1, Number(process.env.SESSION_HOURS || 12));
 const SEND_DELAY_MS = Math.max(0, Number(process.env.SEND_DELAY_MS ?? 1500));
+// Pausa aleatoria: el retraso real es SEND_DELAY_MS + [0, SEND_DELAY_JITTER_MS].
+const SEND_DELAY_JITTER_MS = Math.max(0, Number(process.env.SEND_DELAY_JITTER_MS ?? 2500));
+// Cada SEND_BATCH_SIZE mensajes se hace un descanso más largo.
+const SEND_BATCH_SIZE = Math.max(0, Number(process.env.SEND_BATCH_SIZE || 20));
+const SEND_BATCH_PAUSE_MS = Math.max(0, Number(process.env.SEND_BATCH_PAUSE_MS || 60000));
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 25);
 const MAX_SEND_FILES = Math.max(1, Number(process.env.MAX_SEND_FILES || 10));
 const MAX_TOTAL_UPLOAD_MB = Number(process.env.MAX_TOTAL_UPLOAD_MB || 60);
@@ -303,6 +308,16 @@ setInterval(() => {
   for (const [id, job] of jobs) if (new Date(job.createdAt).getTime() < cutoff) jobs.delete(id);
 }, 600 * 1000).unref();
 
+// Pausa antes del siguiente mensaje. Devuelve 0 en el último envío. Combina
+// una espera aleatoria (jitter, para no mandar con un patrón constante) con un
+// descanso más largo cada SEND_BATCH_SIZE mensajes.
+function nextSendDelay(index, total) {
+  if (index >= total - 1) return 0;
+  if (SEND_BATCH_SIZE && SEND_BATCH_PAUSE_MS && (index + 1) % SEND_BATCH_SIZE === 0) return SEND_BATCH_PAUSE_MS;
+  if (!SEND_DELAY_MS && !SEND_DELAY_JITTER_MS) return 0;
+  return SEND_DELAY_MS + Math.floor(Math.random() * (SEND_DELAY_JITTER_MS + 1));
+}
+
 async function runSendJob(job, { type, text, contacts, media }) {
   try {
     const api = evoClient();
@@ -334,7 +349,8 @@ async function runSendJob(job, { type, text, contacts, media }) {
         addHistory({ kind: "chat", type, name: c.name, phone: c.phone, ok: false, error: err.message });
       }
       job.processed = i + 1;
-      if (SEND_DELAY_MS && i < units.length - 1) await sleep(SEND_DELAY_MS);
+      const wait = nextSendDelay(i, units.length);
+      if (wait) await sleep(wait);
     }
     job.status = "done";
   } catch (e) {
@@ -591,3 +607,4 @@ if (require.main === module) {
 
 module.exports = app;
 module.exports.store = store;
+module.exports.nextSendDelay = nextSendDelay;

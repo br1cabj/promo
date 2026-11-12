@@ -24,7 +24,9 @@ Panel web liviano para gestionar contactos y enviar mensajes/estados mediante Ev
    - `EVOLUTION_INSTANCE`: nombre exacto de la instancia.
    - `ENCRYPTION_KEY`: clave de 32 bytes (hex) para cifrar teléfono y DNI. Si la dejás vacía, se genera `data/.key` automáticamente. No la cambies una vez cargados los datos.
    - `DEFAULT_COUNTRY`: país para normalizar teléfonos (por defecto `AR`).
-   - `SEND_DELAY_MS`: pausa entre envíos (por defecto `1500`).
+   - `SEND_DELAY_MS`: pausa base entre envíos (por defecto `1500`).
+   - `SEND_DELAY_JITTER_MS`: aleatoriedad extra sobre la pausa, para no enviar con un patrón fijo (por defecto `2500`).
+   - `SEND_BATCH_SIZE` y `SEND_BATCH_PAUSE_MS`: descanso largo cada N mensajes (por defecto `20` mensajes y `60000` ms).
    - `MAX_UPLOAD_MB`: tamaño máximo por archivo adjunto (por defecto `25`).
    - `MAX_SEND_FILES`: máximo de imágenes/videos por campaña (por defecto `10`).
    - `MAX_TOTAL_UPLOAD_MB`: peso máximo del conjunto de archivos de una campaña (por defecto `60`).
@@ -141,7 +143,7 @@ Además del borrador, podés guardar **plantillas**: mensajes ya escritos y reut
 - No es un CRM completo ni una plataforma multiusuario.
 - Los datos se guardan en SQLite dentro de `data/`; hacé backup de esa carpeta (y de la clave de cifrado).
 - Los trabajos de envío viven en memoria: si el servidor se reinicia durante una campaña, el progreso en curso se pierde (lo ya enviado queda en el historial). No hay reintentos automáticos.
-- Entre envíos se aplica una pausa (`SEND_DELAY_MS`) para reducir el riesgo de bloqueos; por eso una campaña grande tarda proporcionalmente.
+- Entre envíos se aplica una pausa **aleatoria** (`SEND_DELAY_MS` + jitter) y un descanso largo cada `SEND_BATCH_SIZE` mensajes, para reducir el riesgo de bloqueos y no enviar con un patrón constante. Por eso una campaña grande tarda proporcionalmente.
 - El estado se publica para la audiencia que permita la privacidad del WhatsApp conectado; no es un envío individual a cada cliente.
 - El panel registra la respuesta de la API, pero no recibe confirmaciones finales de entrega/lectura mediante webhooks.
 - Para video se limita a MP4. Respetá los límites de tamaño de tu instancia Evolution API y de WhatsApp.

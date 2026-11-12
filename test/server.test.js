@@ -270,6 +270,24 @@ test("un estado sin Evolution API configurada devuelve 400 (no 502)", async () =
   assert.equal(r.status, 400);
 });
 
+test("la pausa entre envíos usa jitter y descansos por tanda", () => {
+  const delay = app.nextSendDelay;
+  assert.equal(typeof delay, "function");
+  // El último mensaje no espera.
+  assert.equal(delay(4, 5), 0);
+  assert.equal(delay(0, 1), 0);
+  // Pausa aleatoria dentro de [SEND_DELAY_MS, SEND_DELAY_MS + SEND_DELAY_JITTER_MS].
+  for (let i = 0; i < 50; i++) {
+    const d = delay(0, 100);
+    assert.ok(d >= 1500 && d <= 4000, `pausa fuera de rango: ${d}`);
+  }
+  // Al completar una tanda (cada 20), el descanso largo.
+  assert.equal(delay(19, 100), 60000);
+  assert.equal(delay(39, 100), 60000);
+  // Y no es la pausa larga en el resto de los casos.
+  assert.ok(delay(18, 100) < 60000);
+});
+
 test("guarda y recupera un borrador en el servidor", async () => {
   const put = await fetch(`${base}/api/drafts/send`, {
     method: "PUT",
