@@ -176,22 +176,43 @@ app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 app.use("/api", (req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
 
 // Protección CSRF (defensa en profundidad): las operaciones mutables deben venir
-// del mismo sitio. Se compara el host del encabezado Origin con el host de la
-// petición, admitiendo proxies inversos (X-Forwarded-Host) y sin exigir que
-// coincida el puerto, para no romper el logout detrás de Coolify u otro proxy.
+// del mismo sitio. Detrás de un proxy inverso (Coolify/Traefik) el encabezado
+// Origin (host público) puede no coincidir con el Host que ve el contenedor, así
+// que comparamos solo el hostname (sin puerto) contra todos los hosts conocidos:
+// el de la petición, los que reporta el proxy (X-Forwarded-*) y un PUBLIC_URL
+// opcional. Si no hay Origin o es "null" (origen opaco), confiamos en la cookie
+// de sesión SameSite=Strict. Nunca se rechaza por diferencias de puerto.
 function hostnameOf(value) {
-  try { return new URL("http://" + value).hostname.toLowerCase(); } catch { return ""; }
+  if (!value) return "";
+  const raw = String(value).split(",")[0].trim();
+  try { return new URL(raw.includes("://") ? raw : "http://" + raw).hostname.toLowerCase(); } catch { return ""; }
+}
+function allowedHostnames(req) {
+  const hosts = [
+    req.hostname,
+    req.get("host"),
+    req.get("x-forwarded-host"),
+    req.get("x-forwarded-server"),
+    process.env.PUBLIC_URL
+  ];
+  return [...new Set(hosts.map(hostnameOf).filter(Boolean))];
 }
 function csrfGuard(req, res, next) {
   if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
   const origin = req.get("origin");
-  if (!origin) return next();
-  let originHost;
-  try { originHost = new URL(origin).hostname.toLowerCase(); } catch { return res.status(403).json({ error: "Origen no permitido." }); }
-  const forwarded = String(req.get("x-forwarded-host") || "").split(",")[0].trim();
-  const allowed = [req.get("host"), forwarded].filter(Boolean).map(hostnameOf);
-  if (!allowed.includes(originHost)) return res.status(403).json({ error: "Origen no permitido." });
-  next();
+  if (!origin || origin === "null") return next();
+  let originHost = "";
+  try { originHost = new URL(origin).hostname.toLowerCase(); } catch { originHost = ""; }
+  if (!originHost || allowedHostnames(req).includes(originHost)) return next();
+  console.warn("[PromoPanel] CSRF rechazado:", JSON.stringify({
+    origin,
+    host: req.get("host"),
+    xForwardedHost: req.get("x-forwarded-host"),
+    xForwardedServer: req.get("x-forwarded-server"),
+    xForwardedProto: req.get("x-forwarded-proto"),
+    publicUrl: process.env.PUBLIC_URL || null
+  }));
+  return res.status(403).json({ error: "Origen no permitido." });
 }
 
 function requireAuth(req, res, next) {

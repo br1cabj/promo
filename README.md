@@ -78,6 +78,7 @@ En **Environment Variables** de la app:
 | `EVOLUTION_INSTANCE` | nombre exacto de la instancia |
 | `TRUST_PROXY` | `true` (Coolify usa proxy inverso) |
 | `SESSION_HOURS` | `12` |
+| `PUBLIC_URL` | opcional: URL pública exacta, ej. `https://panel.tudominio.com` (solo si el panel rechaza con *Origen no permitido*) |
 
 Generá la clave de cifrado con:
 ```bash
