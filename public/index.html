@@ -69,7 +69,9 @@
       <div class="section-head"><div><div class="eyebrow">CONFIGURACIÓN</div><h2>Conexión de WhatsApp</h2><p>Vinculá la instancia configurada en Evolution API.</p></div></div>
       <div class="card narrow">
         <div class="connection-row"><span class="status-dot" id="connection-dot"></span><div><strong id="connection-title">Consultando conexión...</strong><p id="connection-detail" class="muted">Esperá un momento.</p></div></div>
-        <button id="refresh-connection" class="secondary">Actualizar estado</button>
+        <div id="connection-account" class="account-box hidden"><div class="account-avatar">👤</div><div><strong id="connection-name">—</strong><div id="connection-number" class="muted"></div></div></div>
+        <button id="refresh-connection" class="secondary" type="button">Actualizar estado</button>
+        <button id="disconnect-button" class="secondary hidden" type="button">Desvincular</button>
         <div class="connect-option">
           <h4>Opción 1 · Código de vinculación (desde este mismo celular)</h4>
           <p class="muted">Escribí el número de WhatsApp que querés vincular (con código de país, solo dígitos). Te damos un código de 8 dígitos para escribir en WhatsApp, sin escanear nada.</p>

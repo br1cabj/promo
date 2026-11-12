@@ -458,12 +458,54 @@ app.post("/api/import", upload.single("file"), (req, res) => {
   res.json({ added, duplicates, invalid, total: rows.length });
 });
 
+// Mensaje de error legible a partir de una respuesta de Evolution API (formatos variados).
+function evoError(e) {
+  const d = e?.response?.data;
+  const msg = d?.response?.message || d?.error?.message || d?.message || d?.error || e?.message;
+  if (Array.isArray(msg)) return msg.join(" ");
+  return typeof msg === "string" && msg ? msg : "Error al comunicarse con Evolution API.";
+}
+
 app.get("/api/connection", async (req, res) => {
+  if (!configured()) return res.json({ configured: false, connected: false, state: null });
   try {
-    const r = await evoClient().get(`/instance/connectionState/${encodeURIComponent(config.instance)}`);
-    res.json({ configured: true, data: r.data });
+    const api = evoClient();
+    const instance = encodeURIComponent(config.instance);
+    const stateRes = await api.get(`/instance/connectionState/${instance}`);
+    const state = stateRes.data?.instance?.state || null;
+    // Datos de la cuenta vinculada (opcionales): número y nombre de perfil.
+    let owner = "", profileName = "";
+    try {
+      const infoRes = await api.get(`/instance/fetchInstances?instanceName=${instance}`);
+      const list = (Array.isArray(infoRes.data) ? infoRes.data : [infoRes.data])
+        .map((x) => (x && x.instance ? x.instance : x))
+        .filter(Boolean);
+      const info = list.find((x) => x.instanceName === config.instance || x.name === config.instance) || list[0] || {};
+      owner = String(info.owner || info.ownerJid || info.wuid || info.number || "").replace(/\D/g, "");
+      profileName = info.profileName || "";
+    } catch { /* los datos de la cuenta no son críticos */ }
+    res.json({ configured: true, state, connected: state === "open", instance: config.instance, owner, profileName });
   } catch (e) {
-    res.status(200).json({ configured: configured(), error: e.response?.data?.message || e.message });
+    res.status(200).json({ configured: true, connected: false, state: null, instance: config.instance, error: evoError(e) });
+  }
+});
+
+// Desvincula (logout) la sesión de WhatsApp de la instancia, sin borrarla.
+app.post("/api/disconnect", async (req, res) => {
+  if (!configured()) return res.status(400).json({ error: "Falta configurar Evolution API en el archivo .env" });
+  const api = evoClient();
+  const instance = encodeURIComponent(config.instance);
+  try {
+    await api.delete(`/instance/logout/${instance}`);
+    return res.json({ ok: true });
+  } catch (e) {
+    // En Evolution v2.3.7 el logout puede devolver 500 aunque la sesión se haya
+    // cerrado (bug interno de Prisma). Confirmamos el estado real antes de fallar.
+    try {
+      const st = await api.get(`/instance/connectionState/${instance}`);
+      if (st.data?.instance?.state !== "open") return res.json({ ok: true, recovered: true });
+    } catch { /* seguimos al error original */ }
+    return res.status(502).json({ error: evoError(e) });
   }
 });
 

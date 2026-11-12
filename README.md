@@ -110,6 +110,8 @@ Ahí viven la base SQLite, la clave (si no la definís por env) y los borradores
 - **Otra máquina** (p. ej. tu PC): usá una URL accesible desde el contenedor (HTTPS público o `http://IP:puerto`) y permití el acceso.
 - Verificá el estado en la página **WhatsApp** del panel. Si la instancia ya está conectada, **no hace falta reescanear el QR**.
 - **Vincular desde el celular (sin escanear):** si estás en el celular, el QR queda en la misma pantalla y no podés escanearlo. Para eso está la **Opción 1 · Código de vinculación**: en la página **WhatsApp** escribí el número a vincular (con código de país, solo dígitos) y el panel te devuelve un **código de 8 dígitos**. En WhatsApp del teléfono: *Dispositivos vinculados → Vincular un dispositivo → Vincular con número de teléfono*, y escribí ese código. El **código QR** (Opción 2) queda para cuando tenés **otra pantalla** (PC o tablet) donde mostrarlo y lo escaneás con el teléfono.
+- **Cuenta conectada:** cuando la sesión está activa, la página **WhatsApp** muestra el **número y el nombre de perfil** de la cuenta vinculada, así confirmás que es la correcta.
+- **Desvincular:** el botón **Desvincular** cierra la sesión de WhatsApp de la instancia (equivale a *logout*, **no borra** la instancia ni sus datos). Después podés volver a vincular con QR o con código de vinculación.
 
 ### 9. Copias de seguridad
 - Respaldá el volumen `promopanel-data` (o al menos `promopanel.db` + `data/.key`).
@@ -205,6 +207,7 @@ Además del borrador, podés guardar **plantillas**: mensajes ya escritos y reut
 - Historial local de operaciones.
 - Normalización de teléfonos y detección de duplicados por teléfono **y DNI**.
 - Exportación de la lista de contactos a CSV (mismo formato que la importación).
+- Conexión de WhatsApp por **código QR** o **código de vinculación** (para vincular desde el mismo celular), con la **cuenta conectada** visible (número y nombre) y botón para **desvincular**.
 - Edición de contactos (nombre, teléfono, DNI y autorización) desde la interfaz.
 - Formato de texto estilo WhatsApp (negrita, cursiva, tachado, monoespaciado, citas y listas) con vista previa en vivo y selector de emojis compatibles.
 - Borradores de redacción guardados en el servidor, disponibles desde cualquier equipo (texto, tipo y destinatarios; sin adjuntos).
