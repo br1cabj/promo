@@ -114,7 +114,7 @@ Ahí viven la base SQLite, la clave (si no la definís por env) y los borradores
 - Guardá `ENCRYPTION_KEY` aparte: sin ella, los datos cifrados no se recuperan.
 
 ### Alternativa: recurso Docker Compose
-Si preferís usar el `docker-compose.yml`, creá un recurso **Docker Compose** apuntando a ese archivo (sin `docker-compose.local.yml`, que es solo para pruebas locales). Vas a necesitar montar el volumen persistente en `/app/data` y cargar las mismas variables.
+Si preferís usar el `docker-compose.yml`, creá un recurso **Docker Compose** apuntando a ese archivo. Vas a necesitar montar el volumen persistente en `/app/data` y cargar las mismas variables.
 
 ## Importar contactos
 

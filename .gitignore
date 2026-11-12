@@ -2,9 +2,3 @@ node_modules
 .env
 data/*
 !data/.keep
-
-# Stack de Evolution API solo para pruebas locales
-evolution-local/
-
-# CSV de prueba con datos personales (no subir)
-ejemplo-contactos.csv

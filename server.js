@@ -618,6 +618,3 @@ if (require.main === module) {
 }
 
 module.exports = app;
-module.exports.store = store;
-module.exports.nextSendDelay = nextSendDelay;
-module.exports.connectOrCreate = connectOrCreate;
