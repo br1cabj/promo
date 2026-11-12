@@ -175,14 +175,22 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 app.use("/api", (req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
 
-// Protección CSRF: las operaciones mutables deben venir del mismo origen.
+// Protección CSRF (defensa en profundidad): las operaciones mutables deben venir
+// del mismo sitio. Se compara el host del encabezado Origin con el host de la
+// petición, admitiendo proxies inversos (X-Forwarded-Host) y sin exigir que
+// coincida el puerto, para no romper el logout detrás de Coolify u otro proxy.
+function hostnameOf(value) {
+  try { return new URL("http://" + value).hostname.toLowerCase(); } catch { return ""; }
+}
 function csrfGuard(req, res, next) {
   if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
   const origin = req.get("origin");
   if (!origin) return next();
-  let host;
-  try { host = new URL(origin).host; } catch { return res.status(403).json({ error: "Origen no permitido." }); }
-  if (host !== req.get("host")) return res.status(403).json({ error: "Origen no permitido." });
+  let originHost;
+  try { originHost = new URL(origin).hostname.toLowerCase(); } catch { return res.status(403).json({ error: "Origen no permitido." }); }
+  const forwarded = String(req.get("x-forwarded-host") || "").split(",")[0].trim();
+  const allowed = [req.get("host"), forwarded].filter(Boolean).map(hostnameOf);
+  if (!allowed.includes(originHost)) return res.status(403).json({ error: "Origen no permitido." });
   next();
 }
 
