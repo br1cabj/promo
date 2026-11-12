@@ -25,6 +25,8 @@ Panel web liviano para gestionar contactos y enviar mensajes/estados mediante Ev
    - `ENCRYPTION_KEY`: clave de 32 bytes (hex) para cifrar teléfono y DNI. Si la dejás vacía, se genera `data/.key` automáticamente. No la cambies una vez cargados los datos.
    - `DEFAULT_COUNTRY`: país para normalizar teléfonos (por defecto `AR`).
    - `SEND_DELAY_MS`: pausa entre envíos (por defecto `1500`).
+   - `MAX_UPLOAD_MB`: tamaño máximo por archivo adjunto (por defecto `25`).
+   - `MAX_SEND_FILES`: máximo de imágenes/videos por campaña (por defecto `10`).
    - `TRUST_PROXY`: dejalo en `false` salvo que estés detrás de un proxy inverso; ahí poné `true`.
 5. Ejecutá:
 
@@ -88,6 +90,14 @@ Mientras redactás un mensaje o un estado, el panel **guarda el borrador automá
 - Un borrador totalmente vacío (sin texto ni destinatarios) no se guarda: se elimina solo.
 - El **texto del borrador se cifra** en reposo, igual que el teléfono y el DNI.
 
+## Plantillas de texto
+
+Además del borrador, podés guardar **plantillas**: mensajes ya escritos y reutilizables, para no reescribir lo mismo cada vez.
+
+- Desde **Enviar mensaje** y **Estados**, el desplegable **Plantilla…** carga un texto guardado en el cuadro (también aplica a los destinatarios que ya tengas seleccionados).
+- **Guardar como plantilla** crea una nueva a partir del texto actual (te pide un nombre). Si tenés una plantilla cargada, el botón pasa a **Actualizar plantilla** y aparece **Eliminar**.
+- Las plantillas viven en el **servidor** (SQLite) y su texto se cifra en reposo, así están disponibles desde la PC y el celular.
+
 ## Experiencia de uso
 
 - **Vista previa en vivo** y **contador de caracteres** en los cuadros de mensaje y estado (avisa si superás 1024, el límite de las descripciones de imagen/video).
@@ -111,7 +121,8 @@ Mientras redactás un mensaje o un estado, el panel **guarda el borrador automá
 
 ## Funciones
 
-- Mensajes individuales de texto, imagen y video MP4 a los clientes seleccionados que estén habilitados.
+- **Mensajes individuales** de texto, imagen y video MP4 a los clientes seleccionados que estén habilitados. Podés adjuntar **varias imágenes** en una misma campaña (se envían una por una, con el texto como pie de la primera).
+- **Plantillas de texto** reutilizables y preseleccionables (ver *Plantillas de texto*).
 - Publicar texto, imagen o video MP4 en el estado del número conectado (allContacts=true en Evolution API).
 - Historial local de operaciones.
 - Normalización de teléfonos y detección de duplicados por teléfono **y DNI**.
@@ -133,6 +144,7 @@ Mientras redactás un mensaje o un estado, el panel **guarda el borrador automá
 - El estado se publica para la audiencia que permita la privacidad del WhatsApp conectado; no es un envío individual a cada cliente.
 - El panel registra la respuesta de la API, pero no recibe confirmaciones finales de entrega/lectura mediante webhooks.
 - Para video se limita a MP4. Respetá los límites de tamaño de tu instancia Evolution API y de WhatsApp.
+- En una campaña con imágenes/videos se envían **una por una** a cada persona (no como álbum) y hay un máximo de archivos por envío (`MAX_SEND_FILES`, 10 por defecto).
 - El QR puede requerir adaptar la lectura de respuesta según la versión de Evolution API instalada.
 
 ## Endpoints Evolution API utilizados
@@ -152,6 +164,8 @@ Mientras redactás un mensaje o un estado, el panel **guarda el borrador automá
 - `GET /api/drafts` — lista los borradores guardados.
 - `PUT /api/drafts/{section}` — guarda el borrador de `send` o `status` (un borrador vacío lo elimina).
 - `DELETE /api/drafts/{section}` — elimina el borrador de una sección.
+- `GET /api/templates`, `POST /api/templates` — listar y crear plantillas de texto.
+- `PATCH /api/templates/{id}`, `DELETE /api/templates/{id}` — editar y borrar una plantilla.
 
 Documentación de referencia:
 - https://github.com/EvolutionAPI/evolution-api

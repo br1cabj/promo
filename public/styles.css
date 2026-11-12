@@ -22,6 +22,9 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
 .draft-line{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-6px 0 12px}
 .draft-status{font-size:11px;color:var(--muted)}
 .draft-status.saved{color:var(--green);font-weight:650}
+.template-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-6px 0 10px}
+.template-line select{flex:1 1 150px;min-width:0;margin:0}
+.template-line .text-button{padding:2px 0;white-space:nowrap}
 .recipient-search{margin-bottom:9px}
 .format-toolbar button:focus-visible,.emoji-item:focus-visible,.emoji-btn:focus-visible,.nav:focus-visible,.primary:focus-visible,.secondary:focus-visible,.small-btn:focus-visible,.text-button:focus-visible,.logout-link:focus-visible{outline:2px solid #67ae89;outline-offset:1px}
 

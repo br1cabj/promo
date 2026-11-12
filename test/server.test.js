@@ -312,6 +312,79 @@ test("rechaza una sección de borrador inválida", async () => {
   assert.equal(r.status, 400);
 });
 
+test("crea, lista, actualiza y elimina plantillas de texto", async () => {
+  const created = await fetch(`${base}/api/templates`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Promo verano", text: "2x1 en todos los productos" })
+  });
+  assert.equal(created.status, 200);
+  const tpl = await created.json();
+  assert.ok(tpl.id);
+  assert.equal(tpl.name, "Promo verano");
+
+  const list = await (await fetch(`${base}/api/templates`, { headers: { cookie } })).json();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].text, "2x1 en todos los productos");
+
+  const updated = await fetch(`${base}/api/templates/${tpl.id}`, {
+    method: "PATCH",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Promo verano 2026", text: "2x1 y envío gratis" })
+  });
+  assert.equal(updated.status, 200);
+  const upd = await updated.json();
+  assert.equal(upd.name, "Promo verano 2026");
+  assert.equal(upd.text, "2x1 y envío gratis");
+
+  const removed = await fetch(`${base}/api/templates/${tpl.id}`, { method: "DELETE", headers: { cookie } });
+  assert.equal(removed.status, 200);
+  const after = await (await fetch(`${base}/api/templates`, { headers: { cookie } })).json();
+  assert.equal(after.length, 0);
+});
+
+test("valida las plantillas (nombre y texto obligatorios)", async () => {
+  const noName = await fetch(`${base}/api/templates`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ name: "  ", text: "hola" })
+  });
+  assert.equal(noName.status, 400);
+
+  const noText = await fetch(`${base}/api/templates`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Sin texto", text: "   " })
+  });
+  assert.equal(noText.status, 400);
+});
+
+test("actualizar una plantilla inexistente devuelve 404", async () => {
+  const r = await fetch(`${base}/api/templates/no-existe`, {
+    method: "PATCH",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ name: "X" })
+  });
+  assert.equal(r.status, 404);
+});
+
+test("el texto de la plantilla queda cifrado en disco", async () => {
+  const created = await fetch(`${base}/api/templates`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Secreto", text: "PROMO-CONFIDENCIAL-123" })
+  });
+  assert.equal(created.status, 200);
+  const files = ["promopanel.db", "promopanel.db-wal", "promopanel.db-shm"];
+  const blob = files
+    .map((f) => {
+      const p = path.join(dataDir, f);
+      return fs.existsSync(p) ? fs.readFileSync(p).toString("latin1") : "";
+    })
+    .join("");
+  assert.ok(!blob.includes("PROMO-CONFIDENCIAL-123"), "el texto de la plantilla no debería estar en texto plano");
+});
+
 test("el logout por POST invalida la sesión", async () => {
   const out = await fetch(`${base}/logout`, { method: "POST", headers: { cookie }, redirect: "manual" });
   assert.equal(out.status, 302);

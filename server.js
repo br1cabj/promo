@@ -55,6 +55,7 @@ const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "change-me-now";
 const SESSION_HOURS = Math.max(1, Number(process.env.SESSION_HOURS || 12));
 const SEND_DELAY_MS = Math.max(0, Number(process.env.SEND_DELAY_MS ?? 1500));
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 25);
+const MAX_SEND_FILES = Math.max(1, Number(process.env.MAX_SEND_FILES || 10));
 
 // ---------------------------------------------------------------------------
 // Sesiones (token aleatorio validado contra un Map en memoria; logout real)
@@ -254,7 +255,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024 }
+  limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024, files: MAX_SEND_FILES }
 });
 
 let evoAgent = null;
@@ -298,11 +299,18 @@ setInterval(() => {
   for (const [id, job] of jobs) if (new Date(job.createdAt).getTime() < cutoff) jobs.delete(id);
 }, 600 * 1000).unref();
 
-async function runSendJob(job, { type, text, contacts, mime, mediaBase64, fileName }) {
+async function runSendJob(job, { type, text, contacts, media }) {
   try {
     const api = evoClient();
-    for (let i = 0; i < contacts.length; i++) {
-      const c = contacts[i];
+    // Una unidad por cada mensaje a enviar: con texto es una por cliente; con
+    // imágenes/videos es una por archivo (el texto va como pie de la primera).
+    const units = [];
+    for (const c of contacts) {
+      if (type === "text") units.push({ c, media: null, caption: text });
+      else media.forEach((m, i) => units.push({ c, media: m, caption: i === 0 ? text : "" }));
+    }
+    for (let i = 0; i < units.length; i++) {
+      const { c, media: m, caption } = units[i];
       try {
         let endpoint, payload;
         if (type === "text") {
@@ -310,7 +318,7 @@ async function runSendJob(job, { type, text, contacts, mime, mediaBase64, fileNa
           payload = { number: c.phone, text };
         } else {
           endpoint = `/message/sendMedia/${encodeURIComponent(config.instance)}`;
-          payload = { number: c.phone, mediatype: type, mimetype: mime, caption: text, media: mediaBase64, fileName };
+          payload = { number: c.phone, mediatype: type, mimetype: m.mime, caption, media: m.base64, fileName: m.fileName };
         }
         await api.post(endpoint, payload);
         job.sent++;
@@ -322,7 +330,7 @@ async function runSendJob(job, { type, text, contacts, mime, mediaBase64, fileNa
         addHistory({ kind: "chat", type, name: c.name, phone: c.phone, ok: false, error: err.message });
       }
       job.processed = i + 1;
-      if (SEND_DELAY_MS && i < contacts.length - 1) await sleep(SEND_DELAY_MS);
+      if (SEND_DELAY_MS && i < units.length - 1) await sleep(SEND_DELAY_MS);
     }
     job.status = "done";
   } catch (e) {
@@ -419,7 +427,7 @@ app.post("/api/connect", async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.response?.data?.message || e.message }); }
 });
 
-app.post("/api/send", upload.single("file"), (req, res) => {
+app.post("/api/send", upload.array("files", MAX_SEND_FILES), (req, res) => {
   try {
     if (!configured()) return res.status(400).json({ error: "Falta configurar Evolution API en el archivo .env" });
     const { type, text, ids } = req.body;
@@ -431,21 +439,23 @@ app.post("/api/send", upload.single("file"), (req, res) => {
     if (!["text", "image", "video"].includes(type)) return res.status(400).json({ error: "Tipo de mensaje no válido." });
     const cleanText = cut(text, MAX_TEXT);
     if (type === "text" && !cleanText) return res.status(400).json({ error: "Escribí un mensaje." });
-    if (type !== "text" && !req.file) return res.status(400).json({ error: "Adjuntá una imagen o video." });
+    const files = req.files || [];
+    if (type !== "text" && !files.length) return res.status(400).json({ error: "Adjuntá al menos una imagen o video." });
 
-    let mime, mediaBase64, fileName;
+    let media = [];
     if (type !== "text") {
-      mime = req.file.mimetype;
-      if (type === "image" && !mime.startsWith("image/")) return res.status(400).json({ error: "El archivo no parece ser una imagen." });
-      if (type === "video" && mime !== "video/mp4") return res.status(400).json({ error: "Para video, usá un archivo MP4." });
-      // Se codifica una sola vez para todos los destinatarios.
-      mediaBase64 = req.file.buffer.toString("base64");
-      fileName = cut(req.file.originalname, 200);
+      for (const f of files) {
+        if (type === "image" && !f.mimetype.startsWith("image/")) return res.status(400).json({ error: "Todos los archivos deben ser imágenes." });
+        if (type === "video" && f.mimetype !== "video/mp4") return res.status(400).json({ error: "Para video, usá archivos MP4." });
+        // Se codifica una sola vez para todos los destinatarios.
+        media.push({ mime: f.mimetype, base64: f.buffer.toString("base64"), fileName: cut(f.originalname, 200) });
+      }
     }
 
-    const job = createJob(contacts.length);
+    const total = type === "text" ? contacts.length : contacts.length * media.length;
+    const job = createJob(total);
     res.status(202).json({ jobId: job.id, total: job.total });
-    runSendJob(job, { type, text: cleanText, contacts, mime, mediaBase64, fileName }).catch(() => {});
+    runSendJob(job, { type, text: cleanText, contacts, media }).catch(() => {});
   } catch (e) { res.status(400).json({ error: e.response?.data?.message || e.message }); }
 });
 
@@ -508,6 +518,34 @@ app.put("/api/drafts/:section", (req, res) => {
 
 app.delete("/api/drafts/:section", (req, res) => {
   store.deleteDraft(req.params.section);
+  res.json({ ok: true });
+});
+
+// Plantillas de texto ("mensajes ya escritos") reutilizables y preseleccionables.
+app.get("/api/templates", (req, res) => res.json(store.listTemplates()));
+
+app.post("/api/templates", (req, res) => {
+  try {
+    res.json(store.createTemplate({ name: req.body.name, text: req.body.text }));
+  } catch (e) {
+    if (e instanceof StoreError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+app.patch("/api/templates/:id", (req, res) => {
+  try {
+    const item = store.updateTemplate(req.params.id, { name: req.body.name, text: req.body.text });
+    if (!item) return res.status(404).json({ error: "La plantilla no existe." });
+    res.json(item);
+  } catch (e) {
+    if (e instanceof StoreError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+app.delete("/api/templates/:id", (req, res) => {
+  store.deleteTemplate(req.params.id);
   res.json({ ok: true });
 });
 
