@@ -31,7 +31,7 @@ test("2. el botón del menú mantiene estado accesible y cierra con Escape", () 
   assert.ok(app.includes('btn.setAttribute("aria-expanded","false")'));
   assert.ok(app.includes('document.body.classList.add("nav-open")'));
   assert.ok(app.includes('document.body.classList.remove("nav-open")'));
-  assert.ok(app.includes('if(ev.key==="Escape"){closeEmojiPanels();closeEdit();closeConfirm(false);closeNav(true)}'));
+  assert.ok(app.includes('if(ev.key==="Escape"){closeEmojiPanels();closeEdit();closeConfirm(false);closeTemplate(false);closeNav(true)}'));
   assert.ok(app.includes('const container=modal||(side&&side.classList.contains("open")?side:null)'));
 });
 

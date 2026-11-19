@@ -79,11 +79,12 @@ test("los botones se deshabilitan y se registra la auditoría", () => {
 test("los confirms nativos se reemplazan por un modal accesible", () => {
   assert.ok(!/window\.confirm\s*\(/.test(app), "no debe usar window.confirm");
   assert.ok(!/if\(!confirm\(/.test(app), "no debe usar confirm() directo");
+  assert.ok(!/\bprompt\s*\(/.test(app), "no debe usar prompt() nativo");
   assert.ok(html.includes('id="confirm-modal" class="modal hidden"'), "falta #confirm-modal");
   assert.match(html, /role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message"/);
   assert.match(html, /id="confirm-accept"/);
   assert.match(app, /function askConfirm\(message/);
   assert.match(app, /function closeConfirm\(result\)/);
-  assert.match(app, /if\(ev\.key==="Escape"\)\{closeEmojiPanels\(\);closeEdit\(\);closeConfirm\(false\);closeNav\(true\)\}/);
-  assert.equal((app.match(/await askConfirm\(/g) || []).length, 5, "debe reemplazar los 5 confirms");
+  assert.match(app, /if\(ev\.key==="Escape"\)\{closeEmojiPanels\(\);closeEdit\(\);closeConfirm\(false\);closeTemplate\(false\);closeNav\(true\)\}/);
+  assert.equal((app.match(/await askConfirm\(/g) || []).length, 6, "debe reemplazar los 6 confirms");
 });

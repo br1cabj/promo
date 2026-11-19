@@ -7,6 +7,8 @@ let authorizedCount = 0;
 let focusBeforeModal = null;
 let focusBeforeConfirm = null;
 let confirmResolver = null;
+let templateResolver = null;
+let focusBeforeTemplate = null;
 const MAX_TEXT = 4096, MAX_CAPTION = 1024;
 let maxSendFiles = 10;
 let activeJob = null;          // último job enviado, para poder reanudar el seguimiento
@@ -149,11 +151,35 @@ function closeConfirm(result){
   focusBeforeConfirm=null;
   if(resolve)resolve(!!result);
 }
+// Modal propio para pedir el nombre de una plantilla, sin diálogo nativo.
+function askText({title="Nombre de la plantilla",message="",value="",acceptLabel="Guardar"}={}){
+  if(templateResolver)return Promise.resolve(null);
+  const modal=$("#template-modal");
+  $("#template-modal-title").textContent=title;
+  $("#template-modal-message").textContent=message;
+  const input=$("#template-name");
+  input.value=value||"";
+  $("#template-accept").textContent=acceptLabel;
+  focusBeforeTemplate=document.activeElement;
+  modal.classList.remove("hidden");
+  input.focus();input.select();
+  return new Promise(resolve=>{templateResolver=resolve});
+}
+function closeTemplate(result){
+  const modal=$("#template-modal");
+  if(modal.classList.contains("hidden"))return;
+  const value=$("#template-name").value.trim();
+  modal.classList.add("hidden");
+  const resolve=templateResolver;templateResolver=null;
+  if(focusBeforeTemplate&&typeof focusBeforeTemplate.focus==="function")focusBeforeTemplate.focus();
+  focusBeforeTemplate=null;
+  if(resolve)resolve(result?value:null);
+}
 // Mantiene el foco dentro del modal mientras está abierto.
 function trapModalFocus(ev){
   if(ev.key!=="Tab")return;
-  const confirm=$("#confirm-modal"),edit=$("#edit-modal");
-  const modal=!confirm.classList.contains("hidden")?confirm:!edit.classList.contains("hidden")?edit:null;
+  const confirm=$("#confirm-modal"),edit=$("#edit-modal"),template=$("#template-modal");
+  const modal=!confirm.classList.contains("hidden")?confirm:!edit.classList.contains("hidden")?edit:!template.classList.contains("hidden")?template:null;
   const side=$(".sidebar");
   const container=modal||(side&&side.classList.contains("open")?side:null);
   if(!container)return;
@@ -169,6 +195,9 @@ $("#edit-modal").addEventListener("click",e=>{if(e.target.id==="edit-modal")clos
 $("#confirm-cancel").onclick=()=>closeConfirm(false);
 $("#confirm-accept").onclick=()=>closeConfirm(true);
 $("#confirm-modal").addEventListener("click",e=>{if(e.target.id==="confirm-modal")closeConfirm(false)});
+$("#template-form").addEventListener("submit",e=>{e.preventDefault();if($("#template-name").value.trim())closeTemplate(true)});
+$("#template-cancel").onclick=()=>closeTemplate(false);
+$("#template-modal").addEventListener("click",e=>{if(e.target.id==="template-modal")closeTemplate(false)});
 $("#edit-contact").addEventListener("submit",async e=>{e.preventDefault();const f=e.target;const btn=submitButton(f);btn.disabled=true;try{await request("/api/contacts/"+f.elements.id.value,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:f.elements.name.value,phone:f.elements.phone.value,dni:f.elements.dni.value,optIn:f.elements.optIn.checked})});closeEdit();toast("Cliente actualizado");refreshContacts();loadSummary()}catch(err){toast(err.message)}finally{btn.disabled=false}});
 // --- Formato de texto al estilo WhatsApp -----------------------------------
 function lineBounds(value,start,end){const from=value.lastIndexOf("\n",start-1)+1;let to=value.indexOf("\n",end);if(to===-1)to=value.length;return[from,to]}
@@ -184,7 +213,7 @@ const EMOJI_GROUPS=[{name:"Caras",items:"😀 😃 😄 😁 😆 😅 😂 🙂
 function insertAtCursor(ta,text){const value=ta.value,start=ta.selectionStart,end=ta.selectionEnd;ta.value=value.slice(0,start)+text+value.slice(end);const pos=start+text.length;ta.setSelectionRange(pos,pos);ta.focus()}
 function closeEmojiPanels(){$$(".emoji-panel").forEach(p=>p.classList.add("hidden"))}
 function attachFormatting(){$$(".format-toolbar").forEach(tb=>{const ta=document.getElementById(tb.dataset.formatTarget);if(!ta)return;const preview=document.querySelector('[data-preview-for="'+tb.dataset.formatTarget+'"]');const counter=document.querySelector('[data-count-for="'+tb.dataset.formatTarget+'"]');const typeSel=document.getElementById(tb.dataset.formatTarget==="send-text"?"send-type":"status-type");const update=()=>{if(preview)preview.innerHTML=ta.value.trim()?renderWhatsApp(ta.value):'<span class="muted">La vista previa aparecerá acá a medida que escribas.</span>';if(counter){const n=ta.value.length;const isText=!!(typeSel&&typeSel.value==="text");const max=isText?MAX_TEXT:MAX_CAPTION;counter.textContent=n+" / "+max+" caracteres"+(n>max?" · supera el límite para "+(isText?"mensajes de texto":"imágenes y videos"):"");counter.classList.toggle("warn",n>max)}};tb.querySelectorAll("button[data-fmt]").forEach(btn=>{btn.setAttribute("aria-label",btn.title||btn.textContent);btn.onclick=()=>{applyFormat(ta,btn.dataset.fmt);ta.dispatchEvent(new Event("input"));update()}});const wrap=document.createElement("span");wrap.className="emoji-wrap";const ebtn=document.createElement("button");ebtn.type="button";ebtn.className="emoji-btn";ebtn.title="Insertar emoji";ebtn.setAttribute("aria-label","Insertar emoji");ebtn.textContent="😀";const panel=document.createElement("div");panel.className="emoji-panel hidden";EMOJI_GROUPS.forEach(g=>{const t=document.createElement("div");t.className="emoji-group-title";t.textContent=g.name;panel.appendChild(t);const grid=document.createElement("div");grid.className="emoji-grid";g.items.forEach(e=>{const b=document.createElement("button");b.type="button";b.className="emoji-item";b.textContent=e;b.setAttribute("aria-label","Emoji "+e);b.onclick=()=>{insertAtCursor(ta,e);ta.dispatchEvent(new Event("input"));update();if(window.matchMedia("(max-width:650px)").matches)closeEmojiPanels()};grid.appendChild(b)});panel.appendChild(grid)});ebtn.onclick=ev=>{ev.stopPropagation();const open=!panel.classList.contains("hidden");closeEmojiPanels();if(!open)panel.classList.remove("hidden")};document.addEventListener("click",ev=>{if(!wrap.contains(ev.target))panel.classList.add("hidden")});wrap.appendChild(ebtn);wrap.appendChild(panel);tb.appendChild(wrap);ta.addEventListener("input",update);update()})}
-document.addEventListener("keydown",ev=>{if(ev.key==="Escape"){closeEmojiPanels();closeEdit();closeConfirm(false);closeNav(true)}trapModalFocus(ev)});
+document.addEventListener("keydown",ev=>{if(ev.key==="Escape"){closeEmojiPanels();closeEdit();closeConfirm(false);closeTemplate(false);closeNav(true)}trapModalFocus(ev)});
 attachFormatting();
 // El toolbar de formato se colapsa en celular y se abre en pantallas grandes.
 const mobileLayout=window.matchMedia("(max-width:650px)");
@@ -195,18 +224,89 @@ mobileLayout.addEventListener("change",syncFormatDetails);
 // El borrador vive en el servidor (SQLite), así está disponible desde la PC y
 // el celular. Guardamos texto, tipo y destinatarios; nunca imágenes ni videos.
 const DRAFT_FIELDS={send:{text:"#send-text",type:"#send-type"},status:{text:"#status-text",type:"#status-type"}};
+const DRAFT_TYPE_LABEL={text:"Texto",image:"Imagen",video:"Video"};
 const draftTimers={};
+const lastDraftSavedAt={send:null,status:null};
 let applyingDraft=false;
-function setDraftStatus(section,text,saved){const el=document.querySelector('[data-draft-status="'+section+'"]');if(!el)return;el.textContent=text;el.classList.toggle("saved",!!saved)}
+function draftTime(iso){if(!iso)return "—";const d=new Date(iso);return Number.isNaN(d.getTime())?"—":d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
+function draftMetaText(section,draft){
+  const parts=[];
+  if(draft.text)parts.push("Texto");
+  const type=DRAFT_TYPE_LABEL[draft.type];
+  if(type&&draft.type!=="text")parts.push(type);
+  const n=section==="send"&&Array.isArray(draft.recipientIds)?draft.recipientIds.length:0;
+  if(n)parts.push(n+" destinatario"+(n===1?"":"s"));
+  return parts.join(" · ");
+}
+function hasDraftContent(section){const f=DRAFT_FIELDS[section];return !!($(f.text)?.value||"").trim()||(section==="send"&&selectedRecipients.size>0)}
+function paintDraft(section,{message,saved=false,updatedAt=null,meta="",retry=false}={}){
+  const box=document.querySelector('[data-draft-for="'+section+'"]');if(!box)return;
+  const status=box.querySelector('[data-draft-status="'+section+'"]');
+  const time=box.querySelector('[data-draft-time="'+section+'"]');
+  const metaEl=box.querySelector('[data-draft-meta="'+section+'"]');
+  const retryBtn=box.querySelector('[data-draft-retry="'+section+'"]');
+  const discard=box.querySelector('[data-draft-clear="'+section+'"]');
+  if(status)status.textContent=message;
+  if(time)time.textContent=draftTime(updatedAt||lastDraftSavedAt[section]);
+  if(metaEl){metaEl.textContent=meta;metaEl.classList.toggle("hidden",!meta)}
+  if(retryBtn)retryBtn.classList.toggle("hidden",!retry);
+  if(discard)discard.disabled=!hasDraftContent(section);
+  box.classList.toggle("saved",!!saved);
+  box.classList.toggle("error",!!retry);
+}
 function draftPayload(section){const f=DRAFT_FIELDS[section];return{text:$(f.text)?.value||"",type:$(f.type)?.value||"text",recipientIds:section==="send"?[...selectedRecipients]:[]}}
-async function saveDraftNow(section){if(applyingDraft)return;clearTimeout(draftTimers[section]);delete draftTimers[section];try{const r=await request("/api/drafts/"+section,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(draftPayload(section))});setDraftStatus(section,r.cleared?"Sin borrador":"Borrador guardado",!r.cleared)}catch(e){setDraftStatus(section,"No se pudo guardar el borrador")}}
-function scheduleDraftSave(section){if(applyingDraft)return;setDraftStatus(section,"Guardando…");clearTimeout(draftTimers[section]);draftTimers[section]=setTimeout(()=>saveDraftNow(section),800)}
+async function saveDraftNow(section,{silent=false}={}){
+  if(applyingDraft)return null;
+  clearTimeout(draftTimers[section]);delete draftTimers[section];
+  if(!silent)paintDraft(section,{message:"Guardando…"});
+  try{
+    const r=await request("/api/drafts/"+section,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(draftPayload(section))});
+    if(r.cleared){
+      lastDraftSavedAt[section]=null;
+      paintDraft(section,{message:"Sin borrador. Escribí y se guarda automáticamente."});
+    }else{
+      lastDraftSavedAt[section]=r.updatedAt||new Date().toISOString();
+      paintDraft(section,{message:"Guardado automáticamente",saved:true,updatedAt:lastDraftSavedAt[section],meta:draftMetaText(section,r)});
+    }
+    return r;
+  }catch(e){
+    paintDraft(section,{message:"No se pudo guardar. Revisá tu conexión.",retry:true});
+    return null;
+  }
+}
+function scheduleDraftSave(section){if(applyingDraft)return;paintDraft(section,{message:"Guardando…"});clearTimeout(draftTimers[section]);draftTimers[section]=setTimeout(()=>saveDraftNow(section),800)}
 function flushDrafts(){for(const section of Object.keys(draftTimers)){clearTimeout(draftTimers[section]);delete draftTimers[section];try{fetch("/api/drafts/"+section,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(draftPayload(section)),keepalive:true})}catch{}}}
-function applyDraft(section,draft){const f=DRAFT_FIELDS[section];if(!f)return;clearTimeout(draftTimers[section]);delete draftTimers[section];applyingDraft=true;try{const ta=$(f.text);if(ta){ta.value=draft.text||"";ta.dispatchEvent(new Event("input"))}const sel=$(f.type);if(sel){sel.value=["text","image","video"].includes(draft.type)?draft.type:"text";sel.dispatchEvent(new Event("change"))}if(section==="send"){selectedRecipients=new Set(Array.isArray(draft.recipientIds)?draft.recipientIds:[]);if(contacts.length)renderRecipientList()}const has=!!(draft.text||(draft.recipientIds&&draft.recipientIds.length));setDraftStatus(section,has?"Borrador restaurado":"Sin borrador",has)}finally{applyingDraft=false}}
-async function loadDrafts(){try{const list=await request("/api/drafts");list.forEach(d=>applyDraft(d.section,d))}catch{}}
-async function clearDraft(section){const f=DRAFT_FIELDS[section];if(!f)return;clearTimeout(draftTimers[section]);delete draftTimers[section];applyingDraft=true;try{const ta=$(f.text);if(ta){ta.value="";ta.dispatchEvent(new Event("input"))}const sel=$(f.type);if(sel){sel.value="text";sel.dispatchEvent(new Event("change"))}if(section==="send"){selectedRecipients.clear();if(contacts.length)renderRecipientList()}await request("/api/drafts/"+section,{method:"DELETE"});setDraftStatus(section,"Borrador vaciado");toast("Borrador vaciado")}catch(e){toast(e.message)}finally{applyingDraft=false}}
+function applyDraft(section,draft,{restored=false}={}){
+  const f=DRAFT_FIELDS[section];if(!f)return;
+  clearTimeout(draftTimers[section]);delete draftTimers[section];applyingDraft=true;
+  try{
+    const ta=$(f.text);if(ta){ta.value=draft.text||"";ta.dispatchEvent(new Event("input"))}
+    const sel=$(f.type);if(sel){sel.value=["text","image","video"].includes(draft.type)?draft.type:"text";sel.dispatchEvent(new Event("change"))}
+    if(section==="send"){selectedRecipients=new Set(Array.isArray(draft.recipientIds)?draft.recipientIds:[]);if(contacts.length)renderRecipientList()}
+    const has=!!(draft.text||(draft.recipientIds&&draft.recipientIds.length));
+    lastDraftSavedAt[section]=has?(draft.updatedAt||null):null;
+    paintDraft(section,{message:restored?(has?"Borrador recuperado de otra sesión":"Sin borrador. Escribí y se guarda automáticamente."):(has?"Borrador listo para seguir":"Sin borrador. Escribí y se guarda automáticamente."),saved:has,meta:draftMetaText(section,draft)});
+  }finally{applyingDraft=false}
+}
+async function loadDrafts(){try{const list=await request("/api/drafts");list.forEach(d=>applyDraft(d.section,d,{restored:true}))}catch{}}
+async function clearDraft(section){
+  const f=DRAFT_FIELDS[section];if(!f)return;
+  if(!await askConfirm("¿Descartar el borrador y limpiar el formulario?",{title:"Descartar borrador",acceptLabel:"Descartar",danger:true}))return;
+  clearTimeout(draftTimers[section]);delete draftTimers[section];applyingDraft=true;
+  try{
+    const ta=$(f.text);if(ta){ta.value="";ta.dispatchEvent(new Event("input"))}
+    const sel=$(f.type);if(sel){sel.value="text";sel.dispatchEvent(new Event("change"))}
+    if(section==="send"){selectedRecipients.clear();if(contacts.length)renderRecipientList()}
+    await request("/api/drafts/"+section,{method:"DELETE"});
+    lastDraftSavedAt[section]=null;
+    paintDraft(section,{message:"Borrador descartado. Escribí y se guarda automáticamente."});
+    toast("Borrador descartado");
+  }catch(e){toast(e.message);paintDraft(section,{message:"No se pudo descartar el borrador.",retry:true})}
+  finally{applyingDraft=false}
+}
 ["send","status"].forEach(section=>{const f=DRAFT_FIELDS[section];const ta=$(f.text);if(ta)ta.addEventListener("input",()=>scheduleDraftSave(section));const sel=$(f.type);if(sel)sel.addEventListener("change",()=>scheduleDraftSave(section))});
 $$("[data-draft-clear]").forEach(b=>b.onclick=()=>clearDraft(b.dataset.draftClear));
+$$("[data-draft-retry]").forEach(b=>b.onclick=()=>saveDraftNow(b.dataset.draftRetry));
 window.addEventListener("pagehide",flushDrafts);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")flushDrafts()});
 loadDrafts();
@@ -217,7 +317,7 @@ function updateTemplateButtons(sec){const has=!!selectedTemplate[sec];const save
 function fillTemplateSelect(sec){const sel=document.querySelector('[data-template-for="'+sec+'"]');if(!sel)return;const cur=selectedTemplate[sec];sel.innerHTML='<option value="">Plantilla…</option>'+templateCache[sec].map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");const valid=cur&&templateCache[sec].some(t=>t.id===cur);sel.value=valid?cur:"";if(!valid)selectedTemplate[sec]="";updateTemplateButtons(sec)}
 async function loadTemplates(){try{const list=await request("/api/templates");["send","status"].forEach(sec=>{templateCache[sec]=list;fillTemplateSelect(sec)})}catch{}}
 $$("[data-template-for]").forEach(sel=>{sel.onchange=()=>{const sec=sel.dataset.templateFor;const id=sel.value;selectedTemplate[sec]=id;if(id){const t=templateCache[sec].find(x=>x.id===id);if(t){const ta=$(DRAFT_FIELDS[sec].text);ta.value=t.text;ta.dispatchEvent(new Event("input"));scheduleDraftSave(sec)}}updateTemplateButtons(sec)}});
-$$("[data-template-save]").forEach(b=>b.onclick=async()=>{const sec=b.dataset.templateSave;const ta=$(DRAFT_FIELDS[sec].text);const text=ta.value.trim();if(!text)return toast("Escribí el texto antes de guardarlo como plantilla.");const cur=selectedTemplate[sec];const existing=cur?templateCache[sec].find(t=>t.id===cur):null;const name=prompt("Nombre de la plantilla:",existing?existing.name:"");if(name==null)return;try{if(existing){await request("/api/templates/"+existing.id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim()||existing.name,text})});toast("Plantilla actualizada")}else{const created=await request("/api/templates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim(),text})});selectedTemplate[sec]=created.id;toast("Plantilla guardada")}await loadTemplates()}catch(e){toast(e.message)}});
+$$("[data-template-save]").forEach(b=>b.onclick=async()=>{const sec=b.dataset.templateSave;const ta=$(DRAFT_FIELDS[sec].text);const text=ta.value.trim();if(!text)return toast("Escribí el texto antes de guardarlo como plantilla.");const cur=selectedTemplate[sec];const existing=cur?templateCache[sec].find(t=>t.id===cur):null;const name=await askText({title:existing?"Actualizar plantilla":"Nueva plantilla",message:existing?"Cambiá el nombre o dejá el actual para sobrescribirla.":"Poné un nombre fácil de reconocer después.",value:existing?existing.name:"",acceptLabel:existing?"Actualizar":"Guardar"});if(name===null)return;try{if(existing){await request("/api/templates/"+existing.id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name||existing.name,text})});toast("Plantilla actualizada")}else{const created=await request("/api/templates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,text})});selectedTemplate[sec]=created.id;toast("Plantilla guardada")}await loadTemplates()}catch(e){toast(e.message)}});
 $$("[data-template-delete]").forEach(b=>b.onclick=async()=>{const sec=b.dataset.templateDelete;const id=selectedTemplate[sec];if(!id)return;const t=templateCache[sec].find(x=>x.id===id);if(!await askConfirm(`¿Eliminar la plantilla "${t?t.name:""}"?`,{title:"Eliminar plantilla",acceptLabel:"Eliminar",danger:true}))return;try{await request("/api/templates/"+id,{method:"DELETE"});selectedTemplate[sec]="";toast("Plantilla eliminada");await loadTemplates()}catch(e){toast(e.message)}});
 loadTemplates();
 $("#add-contact").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.target);const btn=submitButton(e.target);btn.disabled=true;try{await request("/api/contacts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:f.get("name"),phone:f.get("phone"),dni:f.get("dni"),optIn:f.has("optIn")})});e.target.reset();toast("Cliente guardado");refreshContacts();loadSummary()}catch(err){toast(err.message)}finally{btn.disabled=false}});
@@ -288,18 +388,26 @@ function renderJobProgress(j,message){
 async function resetSendComposer(){
   applyingDraft=true;
   try{
-    const ta=$("#send-text");
-    if(ta){ta.value="";ta.dispatchEvent(new Event("input"))}
+    const f=DRAFT_FIELDS.send;
+    const text=$(f.text)?.value||"";
+    const type=$(f.type)?.value||"text";
     $("#send-file").value="";
     renderFilePreview("send");
     selectedRecipients.clear();
     if(contacts.length)renderRecipientList();else updateSelected();
-    selectedTemplate.send="";
-    fillTemplateSelect("send");
-    await request("/api/drafts/send",{method:"DELETE"});
-    setDraftStatus("send","Sin borrador");
+    // Conservamos el texto para reutilizarlo, pero no la lista de destinatarios:
+    // así no se envía dos veces a la misma gente por accidente.
+    const r=await request("/api/drafts/send",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,type,recipientIds:[]})});
+    if(r.cleared){
+      lastDraftSavedAt.send=null;
+      paintDraft("send",{message:"Sin borrador. Escribí y se guarda automáticamente."});
+    }else{
+      lastDraftSavedAt.send=r.updatedAt||new Date().toISOString();
+      paintDraft("send",{message:"Borrador conservado para reutilizar",saved:true,updatedAt:lastDraftSavedAt.send,meta:draftMetaText("send",r)});
+      toast("Borrador conservado para reutilizar");
+    }
   }catch(e){
-    // El resultado del envío no debe fallar porque no se pudo limpiar el borrador.
+    // El resultado del envío no debe fallar porque no se pudo actualizar el borrador.
   }finally{pendingSendKey=null;applyingDraft=false}
 }
 async function monitorJob(jobId,total,estimatedMs=0){
