@@ -352,6 +352,11 @@ const jobs = new Map();
 // Si se pierde la respuesta HTTP del POST /api/send, un reintento con la misma
 // clave devuelve el job original en vez de crear una segunda campaña.
 const idempotencyJobs = new Map();
+// Cola global: todos los envíos comparten la misma instancia de WhatsApp, así
+// que el ritmo por job no alcanza si dos campañas corren en paralelo. Solo el
+// primero envía; los demás esperan su turno.
+const sendQueue = [];
+let sendPumpActive = false;
 
 // Duración aproximada con los delays configurados. El front la usa para no
 // abandonar el seguimiento antes de que termine una campaña grande.
@@ -365,8 +370,9 @@ function estimatedJobMs(total) {
 function createJob(total) {
   const id = crypto.randomUUID();
   const job = {
-    id, status: "running", total, processed: 0, sent: 0, failed: 0,
-    results: [], truncated: false, createdAt: new Date().toISOString()
+    id, status: "queued", total, processed: 0, sent: 0, failed: 0,
+    results: [], truncated: false, createdAt: new Date().toISOString(),
+    queuedAt: new Date().toISOString()
   };
   jobs.set(id, job);
   return job;
@@ -461,6 +467,63 @@ async function runSendJob(job, { type, text, contacts, media }) {
   }
 }
 
+// Espera estimada hasta que arranque un job: lo que queda del envío actual más
+// lo que llevan los que ya están en cola. Con `untilId` se calcula solo lo que
+// va ANTES de ese job. El front lo usa para no abandonar el seguimiento.
+function estimatedQueueWaitMs(untilId = null) {
+  let wait = 0;
+  for (const job of jobs.values()) {
+    if (job.status !== "running" || !job.startedAt) continue;
+    const elapsed = Date.now() - new Date(job.startedAt).getTime();
+    wait += Math.max(0, estimatedJobMs(job.total) - elapsed);
+  }
+  for (const pending of sendQueue) {
+    if (pending.job.id === untilId) break;
+    wait += estimatedJobMs(pending.job.total);
+  }
+  return Math.round(wait);
+}
+
+function jobQueueInfo(job) {
+  const index = sendQueue.findIndex((x) => x.job.id === job.id);
+  return {
+    queued: job.status === "queued",
+    queuePosition: index >= 0 ? index + 1 : 0,
+    queueWaitMs: job.status === "queued" ? estimatedQueueWaitMs(job.id) : 0
+  };
+}
+
+function enqueueSend(job, params) {
+  sendQueue.push({ job, params });
+  if (!sendPumpActive) pumpSendQueue();
+}
+
+// Un solo envío activo por instancia. Cualquier error queda registrado en el
+// job y el pump sigue con el siguiente para que una campaña mala no bloquee
+// toda la cola.
+function pumpSendQueue() {
+  if (sendPumpActive) return;
+  sendPumpActive = true;
+  (async () => {
+    while (sendQueue.length) {
+      const { job, params } = sendQueue.shift();
+      if (!jobs.has(job.id)) continue; // expiró mientras esperaba
+      job.status = "running";
+      job.startedAt = new Date().toISOString();
+      try {
+        await runSendJob(job, params);
+      } catch (e) {
+        job.status = "error";
+        job.error = evoError(e);
+        job.finishedAt = new Date().toISOString();
+      }
+    }
+  })().finally(() => {
+    sendPumpActive = false;
+    if (sendQueue.length) pumpSendQueue();
+  });
+}
+
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
@@ -472,7 +535,11 @@ app.get("/api/summary", (req, res) => {
     history: counts.history,
     connectedConfig: configured(),
     maxSendFiles: MAX_SEND_FILES,
-    linkTtlMs: LINK_TTL_MS
+    linkTtlMs: LINK_TTL_MS,
+    sendDelayMs: SEND_DELAY_MS,
+    sendDelayJitterMs: SEND_DELAY_JITTER_MS,
+    sendBatchSize: SEND_BATCH_SIZE,
+    sendBatchPauseMs: SEND_BATCH_PAUSE_MS
   });
 });
 
@@ -655,8 +722,11 @@ app.post("/api/send", upload.array("files", MAX_SEND_FILES), (req, res) => {
       const oldId = idempotencyJobs.get(idem);
       const old = oldId && jobs.get(oldId);
       if (old) {
+        const wait = estimatedQueueWaitMs(old.id);
         return res.status(202).json({
-          jobId: old.id, total: old.total, estimatedMs: estimatedJobMs(old.total), reused: true
+          jobId: old.id, total: old.total,
+          estimatedMs: estimatedJobMs(old.total) + wait,
+          reused: true, ...jobQueueInfo(old)
         });
       }
     }
@@ -677,10 +747,16 @@ app.post("/api/send", upload.array("files", MAX_SEND_FILES), (req, res) => {
     }
 
     const total = type === "text" ? contacts.length : contacts.length * media.length;
+    const wait = estimatedQueueWaitMs(); // antes de encolar el job actual
+    const queuePosition = sendQueue.length + (sendPumpActive ? 1 : 0);
     const job = createJob(total);
     if (idem) idempotencyJobs.set(idem, job.id);
-    res.status(202).json({ jobId: job.id, total: job.total, estimatedMs: estimatedJobMs(total) });
-    runSendJob(job, { type, text: cleanText, contacts, media }).catch(() => {});
+    res.status(202).json({
+      jobId: job.id, total: job.total,
+      estimatedMs: estimatedJobMs(total) + wait,
+      queued: queuePosition > 0, queuePosition, queueWaitMs: wait
+    });
+    enqueueSend(job, { type, text: cleanText, contacts, media });
   } catch (e) { res.status(400).json({ error: evoError(e) }); }
 });
 
@@ -690,7 +766,9 @@ app.get("/api/jobs/:id", (req, res) => {
   res.json({
     id: job.id, status: job.status, total: job.total, processed: job.processed,
     sent: job.sent, failed: job.failed, results: job.results,
-    truncated: job.truncated, error: job.error
+    truncated: job.truncated, error: job.error,
+    queuedAt: job.queuedAt || null, startedAt: job.startedAt || null,
+    ...jobQueueInfo(job)
   });
 });
 
@@ -813,4 +891,7 @@ if (require.main === module) {
   app.listen(PORT, () => console.log(`PromoPanel Lite escuchando en puerto ${PORT}`));
 }
 
+// Exponer el store permite a los tests cerrar SQLite antes de borrar su
+// DATA_DIR temporal (en Windows un archivo abierto no se puede eliminar).
+app.store = store;
 module.exports = app;

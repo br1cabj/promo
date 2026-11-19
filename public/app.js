@@ -17,15 +17,50 @@ let connectionWatch = null;
 let connectionPollTick = 0;
 let linkKind = null;           // "qr" | "pairing"
 let linkExpiresAt = 0;
+let historyRows = [];          // se filtra en el navegador, sin recargar la API
+let sendConfig = {             // lo ajusta /api/summary
+  sendDelayMs: 1500, sendDelayJitterMs: 2500,
+  sendBatchSize: 20, sendBatchPauseMs: 60000
+};
+const confirmObjectUrls = [];  // miniaturas del modal: se liberan al cerrar
+const previewUrls = { send: [], status: [] }; // miniaturas de los inputs
+const LAST_JOB_KEY = "pp-last-job"; // permite retomar el seguimiento tras recargar
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Idempotencia por contenido: reintentar el MISMO envío reusa el job, pero
+// cambiar texto, destinatarios o archivos genera una clave nueva. Así una
+// clave colgada tras un error de seguimiento no puede pisar una campaña nueva.
+function campaignKey(type, text, ids, files) {
+  const raw = [type, text, [...ids].sort().join(","),
+    files.map(f => `${f.name}:${f.size}:${f.lastModified || 0}`).join(",")].join("\u001f");
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 16777619) >>> 0;
+    h2 = Math.imul(h2 + c, 2246822519) >>> 0;
+    h2 = ((h2 << 13) | (h2 >>> 19)) >>> 0;
+  }
+  return "cmp-" + h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0");
+}
 function toast(msg,action){const el=$("#toast");el.innerHTML="";const span=document.createElement("span");span.textContent=msg;el.appendChild(span);if(action){const btn=document.createElement("button");btn.type="button";btn.className="toast-action";btn.textContent=action.label;btn.onclick=()=>{clearTimeout(toastTimer);el.classList.remove("show");action.onClick()};el.appendChild(btn)}el.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove("show"),action?7000:2800)}
 async function request(url, options={}){const r=await fetch(url,options);let data={};try{data=await r.json()}catch{}if(r.status===401){window.location.href="/login";throw new Error("Sesión expirada")}if(!r.ok)throw new Error(data.error||"Ocurrió un error");return data}
 // Busca el botón que dispara el submit aunque el HTML no lleve type="submit".
 function submitButton(form){return form.querySelector('button[type="submit"]')||form.querySelector('button:not([type])')||form.querySelector('button')}
-function showPage(name){$$(".page").forEach(p=>p.classList.add("hidden"));$("#page-"+name).classList.remove("hidden");$$(".nav").forEach(b=>b.classList.toggle("active",b.dataset.page===name));$("#page-title").textContent=({home:"Inicio",contacts:"Clientes",send:"Enviar mensaje",status:"Estados",history:"Historial",connection:"WhatsApp"})[name];if(name==="contacts")refreshContacts();if(name==="send")renderRecipients();if(name==="history")loadHistory();if(name==="connection")loadConnection();else stopConnectionWatch()}
+function showPage(name){$$(".page").forEach(p=>p.classList.add("hidden"));$("#page-"+name).classList.remove("hidden");$$(".nav").forEach(b=>{const active=b.dataset.page===name;b.classList.toggle("active",active);if(active)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});$("#page-title").textContent=({home:"Inicio",contacts:"Clientes",send:"Enviar mensaje",status:"Estados",history:"Historial",connection:"WhatsApp"})[name];if(name==="contacts")refreshContacts();if(name==="send")renderRecipients();if(name==="history")loadHistory();if(name==="connection")loadConnection();else stopConnectionWatch()}
 $$(".nav").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));
-$$(".quick").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.go)));
-async function loadSummary(){try{const s=await request("/api/summary");$("#stat-total").textContent=s.total;$("#stat-optin").textContent=s.optedIn;$("#stat-history").textContent=s.history;if(Number(s.maxSendFiles)>0)maxSendFiles=Number(s.maxSendFiles);if(Number(s.linkTtlMs)>0)linkTtlMs=Number(s.linkTtlMs)}catch(e){toast(e.message)}}
+// Incluye las acciones rápidas y el chip "Ver WhatsApp" de Enviar.
+$$("[data-go]").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.go)));
+async function loadSummary(){try{const s=await request("/api/summary");$("#stat-total").textContent=s.total;$("#stat-optin").textContent=s.optedIn;$("#stat-history").textContent=s.history;if(Number(s.maxSendFiles)>0)maxSendFiles=Number(s.maxSendFiles);if(Number(s.linkTtlMs)>0)linkTtlMs=Number(s.linkTtlMs);sendConfig={sendDelayMs:Number(s.sendDelayMs)||1500,sendDelayJitterMs:Number(s.sendDelayJitterMs)||0,sendBatchSize:Number(s.sendBatchSize)||0,sendBatchPauseMs:Number(s.sendBatchPauseMs)||0};updatePaceHint()}catch(e){toast(e.message)}}
+// Mostrar el ritmo real evita que una campaña larga parezca colgada.
+function updatePaceHint(){
+  const {sendDelayMs,sendDelayJitterMs,sendBatchSize,sendBatchPauseMs}=sendConfig;
+  const per=(sendDelayMs+sendDelayJitterMs/2)/1000;
+  const secs=new Intl.NumberFormat("es-AR",{maximumFractionDigits:1}).format(per);
+  let text=`Ritmo: ~${secs} s por mensaje`;
+  if(sendBatchSize>0&&sendBatchPauseMs>0)text+=` + ${Math.round(sendBatchPauseMs/60000)} min cada ${sendBatchSize}`;
+  text+=". Pausas que evitan bloquear el número.";
+  const el=$("#send-pace");
+  if(el)el.textContent=text;
+}
 async function loadContacts(){contacts=await request("/api/contacts");pruneSelected();return contacts}
 // Quita de la selección los contactos que ya no existen o perdieron la
 // autorización: así el contador y el confirm coinciden con lo que envía el API.
@@ -40,11 +75,24 @@ $("#export-contacts").onclick=exportContacts;
 function openEdit(id){const c=contacts.find(x=>x.id===id);if(!c)return;focusBeforeModal=document.activeElement;const f=$("#edit-contact");f.elements.id.value=c.id;f.elements.name.value=c.name||"";f.elements.phone.value=c.phone||"";f.elements.dni.value=c.dni||"";f.elements.optIn.checked=!!c.optIn;$("#edit-modal").classList.remove("hidden");f.elements.name.focus()}
 function closeEdit(){const modal=$("#edit-modal");if(modal.classList.contains("hidden"))return;modal.classList.add("hidden");if(focusBeforeModal&&typeof focusBeforeModal.focus==="function")focusBeforeModal.focus();focusBeforeModal=null}
 // Confirmaciones accesibles, en reemplazo del diálogo nativo.
-function askConfirm(message,{title="Confirmar acción",acceptLabel="Confirmar",danger=false}={}){
+function releaseConfirmUrls(){while(confirmObjectUrls.length){URL.revokeObjectURL(confirmObjectUrls.pop())}}
+function askConfirm(message,{title="Confirmar acción",acceptLabel="Confirmar",danger=false,detail=null}={}){
   if(confirmResolver)return Promise.resolve(false);
   const modal=$("#confirm-modal");
   $("#confirm-modal-title").textContent=title;
   $("#confirm-modal-message").textContent=message;
+  const detailBox=$("#confirm-modal-detail");
+  releaseConfirmUrls();
+  detailBox.innerHTML="";
+  detailBox.classList.add("hidden");
+  if(detail){
+    const lines=(detail.lines||[]).filter(Boolean);
+    const images=[...(detail.images||[]),...(detail.files||[]).filter(f=>f&&f.type&&f.type.startsWith("image/")).slice(0,4).map(f=>{const u=URL.createObjectURL(f);confirmObjectUrls.push(u);return u})];
+    let html="";
+    if(lines.length)html+='<div class="confirm-lines">'+lines.map(l=>`<div>${esc(l)}</div>`).join("")+"</div>";
+    if(images.length)html+='<div class="confirm-thumbs">'+images.map(u=>`<img src="${u}" alt="Archivo adjunto">`).join("")+"</div>";
+    if(html){detailBox.innerHTML=html;detailBox.classList.remove("hidden")}
+  }
   const accept=$("#confirm-accept");
   accept.textContent=acceptLabel;
   accept.classList.toggle("danger",!!danger);
@@ -57,6 +105,8 @@ function closeConfirm(result){
   const modal=$("#confirm-modal");
   if(modal.classList.contains("hidden"))return;
   modal.classList.add("hidden");
+  const detailBox=$("#confirm-modal-detail");
+  detailBox.classList.add("hidden");detailBox.innerHTML="";releaseConfirmUrls();
   const resolve=confirmResolver;confirmResolver=null;
   if(focusBeforeConfirm&&typeof focusBeforeConfirm.focus==="function")focusBeforeConfirm.focus();
   focusBeforeConfirm=null;
@@ -134,17 +184,62 @@ function updateSelected(){$("#selected-count").textContent=selectedRecipients.si
 $("#recipient-search").addEventListener("input",renderRecipientList);
 $("#select-all").onclick=()=>{$$(".recipient-check").forEach(c=>{c.checked=true;selectedRecipients.add(c.value)});updateSelected();scheduleDraftSave("send")};
 $("#select-none").onclick=()=>{selectedRecipients.clear();$$(".recipient-check").forEach(c=>c.checked=false);updateSelected();scheduleDraftSave("send")};
-$("#send-type").onchange=()=>{const isText=$("#send-type").value==="text";$("#send-file-wrap").classList.toggle("hidden",isText);$("#send-file").accept=$("#send-type").value==="video"?"video/mp4":"image/*";if(isText)$("#send-file").value="";$("#send-text").dispatchEvent(new Event("input"))};
+function formatBytes(n){const b=Number(n)||0;return b>=1048576?(b/1048576).toFixed(1).replace(".",",")+" MB":Math.max(1,Math.round(b/1024))+" KB"}
+function renderFilePreview(which){
+  const isSend=which==="send";
+  const input=$(isSend?"#send-file":"#status-file"),box=$(isSend?"#send-file-preview":"#status-file-preview");
+  if(!input||!box)return;
+  const urls=previewUrls[which];
+  while(urls.length)URL.revokeObjectURL(urls.pop());
+  const files=[...(input.files||[])];
+  box.innerHTML="";
+  box.classList.toggle("hidden",!files.length);
+  if(!files.length)return;
+  box.innerHTML=files.map(f=>{
+    const isImage=!!(f.type&&f.type.startsWith("image/"));
+    let thumb='<span class="file-icon" aria-hidden="true">▶</span>';
+    if(isImage){const u=URL.createObjectURL(f);urls.push(u);thumb=`<img src="${u}" alt="">`}
+    return `<div class="file-preview-item">${thumb}<span>${esc(f.name)} · ${formatBytes(f.size)}</span></div>`;
+  }).join("");
+}
+$("#send-file").onchange=()=>renderFilePreview("send");
+$("#status-file").onchange=()=>renderFilePreview("status");
+$("#send-type").onchange=()=>{const isText=$("#send-type").value==="text";$("#send-file-wrap").classList.toggle("hidden",isText);$("#send-file").accept=$("#send-type").value==="video"?"video/mp4":"image/*";if(isText)$("#send-file").value="";renderFilePreview("send");$("#send-text").dispatchEvent(new Event("input"))};
+function formatDuration(ms){const mins=Math.max(1,Math.ceil(ms/60000));return mins>=60?`${Math.floor(mins/60)} h ${mins%60} min`:`${mins} min`}
+function saveLastJob(job){try{localStorage.setItem(LAST_JOB_KEY,JSON.stringify(job))}catch{}}
+function loadLastJob(){try{const raw=localStorage.getItem(LAST_JOB_KEY);return raw?JSON.parse(raw):null}catch{return null}}
+function failedDetails(j){
+  const failed=(j.results||[]).filter(r=>r&&r.ok===false);
+  if(!failed.length)return "";
+  const items=failed.map(r=>`<li>${esc(r.name||"Sin nombre")} · ${esc(r.phone||"")}${r.error?" · "+esc(r.error):""}</li>`).join("");
+  const note=j.truncated?'<p class="tiny muted">Mostrando solo los últimos resultados registrados.</p>':"";
+  return `<details class="result-details"><summary>Ver detalle de ${failed.length} fallido${failed.length===1?"":"s"}</summary><ul class="fail-list">${items}</ul>${note}</details>`;
+}
 function showJobResult(j){
   const box=$("#send-result");
   box.classList.remove("hidden");
+  const detail=failedDetails(j);
   if(j.status==="error"){
     box.classList.add("error");
-    box.textContent=`No se pudo completar el envío: ${j.error||"error desconocido"}`;
+    box.innerHTML=`<p class="job-summary">No se pudo completar el envío: ${esc(j.error||"error desconocido")}</p>${detail}`;
   }else{
     box.classList.remove("error");
-    box.textContent=`Proceso finalizado. Enviados: ${j.sent}. Fallidos: ${j.failed}.`;
+    box.innerHTML=`<p class="job-summary">Proceso finalizado. Enviados: ${j.sent}. Fallidos: ${j.failed}.</p>${detail}`;
   }
+  saveLastJob({jobId:j.id||j.jobId||(activeJob&&activeJob.jobId),total:j.total||(activeJob&&activeJob.total),estimatedMs:(activeJob&&activeJob.estimatedMs)||0,status:j.status,sent:j.sent,failed:j.failed,error:j.error,truncated:j.truncated,results:(j.results||[]).filter(r=>r&&r.ok===false).slice(0,20)});
+}
+function renderJobProgress(j,message){
+  const box=$("#send-result");
+  const total=Number(j.total)||0,processed=Number(j.processed)||0;
+  const pct=total?Math.min(100,Math.round(processed/total*100)):0;
+  let eta="";
+  if(j.status==="queued"&&Number(j.queueWaitMs)>0)eta=`~${formatDuration(j.queueWaitMs)} de espera`;
+  else if(activeJob&&activeJob.startedAt){
+    const left=Number(activeJob.estimatedMs||0)-(Date.now()-activeJob.startedAt);
+    if(left>0)eta=`quedan ~${formatDuration(left)}`;
+  }
+  const meta=`${processed}/${total} · Enviados: ${j.sent||0} · Fallidos: ${j.failed||0}`+(eta?"":" · Calculando tiempo restante...");
+  box.innerHTML=`<div class="job-head"><span class="job-message">${esc(message)}</span>${eta?`<span class="job-eta">${esc(eta)}</span>`:""}</div><div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Progreso del envío"><div class="progress-bar" style="width:${pct}%"></div></div><div class="progress-meta">${esc(meta)}</div>`;
 }
 async function resetSendComposer(){
   applyingDraft=true;
@@ -152,6 +247,7 @@ async function resetSendComposer(){
     const ta=$("#send-text");
     if(ta){ta.value="";ta.dispatchEvent(new Event("input"))}
     $("#send-file").value="";
+    renderFilePreview("send");
     selectedRecipients.clear();
     if(contacts.length)renderRecipientList();else updateSelected();
     selectedTemplate.send="";
@@ -165,7 +261,8 @@ async function resetSendComposer(){
 async function monitorJob(jobId,total,estimatedMs=0){
   if(monitoringJob)return null;
   monitoringJob=true;
-  activeJob={jobId,total,estimatedMs,last:null};
+  activeJob={jobId,total,estimatedMs,startedAt:Date.now(),last:null};
+  saveLastJob({jobId,total,estimatedMs,status:"running"});
   $("#track-job").classList.remove("hidden");
   const box=$("#send-result");
   const deadline=Date.now()+Math.max(30*60*1000,Number(estimatedMs||0)+10*60*1000);
@@ -183,25 +280,30 @@ async function monitorJob(jobId,total,estimatedMs=0){
       box.classList.add("error");
       box.textContent=`No se pudo consultar el estado (${e.message}). Reintentando...`;
       if(errors>=6){
-        monitoringJob=false;
+        monitoringJob=false;pendingSendKey=null;
         box.textContent="No se pudo confirmar el estado del envío. Usá \"Ver estado del último envío\" para reintentar.";
         return null;
       }
       continue;
     }
     activeJob.last=j;
-    if(j.status==="running"){
+    if(j.status==="queued"){
       box.classList.remove("error");
-      box.textContent=`Procesando ${j.processed}/${j.total} · Enviados: ${j.sent} · Fallidos: ${j.failed}`;
+      renderJobProgress(j,`En cola (puesto ${j.queuePosition||1}) · ${j.total} mensajes. Esperando al envío anterior...`);
       continue;
     }
-    monitoringJob=false;
+    if(j.status==="running"){
+      box.classList.remove("error");
+      renderJobProgress(j,`Procesando ${j.processed}/${j.total} · Enviados: ${j.sent} · Fallidos: ${j.failed}`);
+      continue;
+    }
+    monitoringJob=false;pendingSendKey=null;
     await resetSendComposer();
     showJobResult(j);
     loadSummary();
     return j;
   }
-  monitoringJob=false;
+  monitoringJob=false;pendingSendKey=null;
   box.classList.add("error");
   box.textContent="El envío sigue en curso. Podés seguir consultando con \"Ver estado del último envío\".";
   return null;
@@ -214,20 +316,23 @@ $("#send-button").onclick=async()=>{
   if(type!=="text"&&!files.length)return toast("Adjuntá al menos una imagen o video.");
   if(files.length>maxSendFiles)return toast(`No podés adjuntar más de ${maxSendFiles} archivos.`);
   const messages=ids.length*Math.max(1,files.length);
-  if(!await askConfirm(`Vas a enviar ${messages} mensaje${messages===1?"":"s"} a ${ids.length} cliente${ids.length===1?"":"s"}${files.length>1?" ("+files.length+" archivos por cliente)":""}. ¿Continuar?`,{title:"Confirmar envío",acceptLabel:"Enviar"}))return;
+  const rawFirst=$("#send-text").value.split("\n").find(l=>l.trim())||"(sin texto)";
+  const firstLine=rawFirst.slice(0,80)+(rawFirst.length>80?"…":"");
+  const detail={lines:[`Texto: ${firstLine}`,`${ids.length} destinatario${ids.length===1?"":"s"}`,files.length?`${files.length} archivo${files.length===1?"":"s"} por cliente`:"Solo texto",files.length>1?"El pie de texto se envía solo con el primer archivo.":null].filter(Boolean),files};
+  if(!await askConfirm(`Vas a enviar ${messages} mensaje${messages===1?"":"s"} a ${ids.length} cliente${ids.length===1?"":"s"}${files.length>1?" ("+files.length+" archivos por cliente)":""}. ¿Continuar?`,{title:"Confirmar envío",acceptLabel:"Enviar",detail}))return;
   const fd=new FormData();
   fd.append("type",type);
   fd.append("text",$("#send-text").value);
   fd.append("ids",JSON.stringify(ids));
   files.forEach(f=>fd.append("files",f));
   const b=$("#send-button"),box=$("#send-result");
-  const key=pendingSendKey||(typeof crypto!=="undefined"&&crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random());
+  const key=campaignKey(type,$("#send-text").value,ids,files);
   pendingSendKey=key;
   b.disabled=true;b.textContent="Enviando...";
   box.classList.remove("hidden","error");box.textContent="Preparando el envío...";
   try{
     const start=await request("/api/send",{method:"POST",body:fd,headers:{"Idempotency-Key":key}});
-    box.textContent=start.reused?`Reanudando envío anterior (${start.total} mensajes)...`:`Procesando 0/${start.total}...`;
+    box.textContent=start.reused?`Reanudando envío anterior (${start.total} mensajes)...`:start.queued?`En cola (puesto ${start.queuePosition}) · ${start.total} mensajes...`:`Procesando 0/${start.total}...`;
     await monitorJob(start.jobId,start.total,start.estimatedMs);
   }catch(e){
     box.classList.remove("hidden");box.classList.add("error");box.textContent=e.message;
@@ -236,13 +341,46 @@ $("#send-button").onclick=async()=>{
 $("#track-job").onclick=async()=>{
   if(monitoringJob)return toast("El envío ya se está siguiendo.");
   if(!activeJob)return toast("No hay un envío reciente para consultar.");
-  if(activeJob.last&&activeJob.last.status!=="running")return showJobResult(activeJob.last);
+  if(activeJob.status&&activeJob.status!=="running"&&activeJob.status!=="queued")return showJobResult(activeJob);
+  if(activeJob.last&&activeJob.last.status!=="running"&&activeJob.last.status!=="queued")return showJobResult(activeJob.last);
+  try{
+    const j=await request("/api/jobs/"+encodeURIComponent(activeJob.jobId));
+    if(j.status!=="running"&&j.status!=="queued"){activeJob.last=j;return showJobResult(j)}
+  }catch{}
   $("#send-result").classList.remove("hidden");
   await monitorJob(activeJob.jobId,activeJob.total,activeJob.estimatedMs);
 };
-$("#status-type").onchange=()=>{$("#status-file-wrap").classList.toggle("hidden",$("#status-type").value==="text");$("#status-file").accept=$("#status-type").value==="video"?"video/mp4":"image/*";$("#status-text").dispatchEvent(new Event("input"))};
-$("#status-button").onclick=async()=>{const type=$("#status-type").value;const fd=new FormData();fd.append("type",type);fd.append("text",$("#status-text").value);if($("#status-file").files[0])fd.append("file",$("#status-file").files[0]);if(!await askConfirm("¿Publicar este contenido en el Estado de WhatsApp del número conectado?",{title:"Publicar estado",acceptLabel:"Publicar"}))return;const b=$("#status-button");b.disabled=true;b.textContent="Publicando...";try{await request("/api/status",{method:"POST",body:fd});$("#status-file").value="";$("#status-result").classList.remove("hidden","error");$("#status-result").textContent="Solicitud de publicación enviada a WhatsApp.";toast("Estado enviado")}catch(e){$("#status-result").classList.remove("hidden");$("#status-result").classList.add("error");$("#status-result").textContent=e.message}finally{b.disabled=false;b.textContent="Publicar estado"}};
-async function loadHistory(){try{const h=await request("/api/history");$("#history-body").innerHTML=h.map(x=>`<tr><td data-label="Fecha">${new Date(x.at).toLocaleString()}</td><td data-label="Acción">${x.kind==="status"?"Estado":x.kind==="connection"?"Conexión":"Mensaje"} · ${esc(x.type||"")}</td><td data-label="Cliente / resultado">${esc(x.name||x.phone||"Publicación de estado")}</td><td data-label="Estado"><span class="pill ${x.ok?"yes":"no"}">${x.ok?"Procesado":"Error"}</span></td></tr>`).join("")||'<tr><td colspan="4">Todavía no hay actividad.</td></tr>'}catch(e){toast(e.message)}}
+$("#status-type").onchange=()=>{const isText=$("#status-type").value==="text";$("#status-file-wrap").classList.toggle("hidden",isText);$("#status-file").accept=$("#status-type").value==="video"?"video/mp4":"image/*";if(isText)$("#status-file").value="";renderFilePreview("status");$("#status-text").dispatchEvent(new Event("input"))};
+$("#status-button").onclick=async()=>{
+  const type=$("#status-type").value,file=$("#status-file").files[0];
+  if(type!=="text"&&!file)return toast("Adjuntá una imagen o video para el estado.");
+  const rawFirst=$("#status-text").value.split("\n").find(l=>l.trim())||"(sin texto)";
+  const firstLine=rawFirst.slice(0,80)+(rawFirst.length>80?"…":"");
+  const detail={lines:[`Texto: ${firstLine}`,file?`Archivo: ${file.name}`:"Solo texto"].filter(Boolean),files:file?[file]:[]};
+  if(!await askConfirm("¿Publicar este contenido en el Estado de WhatsApp del número conectado?",{title:"Publicar estado",acceptLabel:"Publicar",detail}))return;
+  const fd=new FormData();fd.append("type",type);fd.append("text",$("#status-text").value);if(file)fd.append("file",file);
+  const b=$("#status-button");b.disabled=true;b.textContent="Publicando...";
+  try{await request("/api/status",{method:"POST",body:fd});$("#status-file").value="";renderFilePreview("status");$("#status-result").classList.remove("hidden","error");$("#status-result").textContent="Solicitud de publicación enviada a WhatsApp.";toast("Estado enviado")}catch(e){$("#status-result").classList.remove("hidden");$("#status-result").classList.add("error");$("#status-result").textContent=e.message}finally{b.disabled=false;b.textContent="Publicar estado"}
+};
+function historyKind(x){return x.kind==="chat"?"message":x.kind||"message"}
+async function loadHistory(){try{historyRows=await request("/api/history");renderHistory()}catch(e){toast(e.message)}}
+function renderHistory(){
+  const q=($("#history-search").value||"").toLowerCase().trim();
+  const kind=$("#history-kind").value,result=$("#history-result").value;
+  const rows=historyRows.filter(x=>{
+    const k=historyKind(x);
+    if(kind&&k!==kind)return false;
+    if(result==="ok"&&!x.ok)return false;
+    if(result==="error"&&x.ok)return false;
+    if(!q)return true;
+    const label=k==="message"?"Mensaje":k==="status"?"Estado":"Conexión";
+    return [label,x.type,x.name,x.phone,x.error,new Date(x.at).toLocaleString()].join(" ").toLowerCase().includes(q);
+  });
+  $("#history-body").innerHTML=rows.map(x=>`<tr><td data-label="Fecha">${new Date(x.at).toLocaleString()}</td><td data-label="Acción">${x.kind==="status"?"Estado":x.kind==="connection"?"Conexión":"Mensaje"} · ${esc(x.type||"")}</td><td data-label="Cliente / resultado">${esc(x.name||x.phone||"Publicación de estado")}</td><td data-label="Estado"><span class="pill ${x.ok?"yes":"no"}">${x.ok?"Procesado":"Error"}</span></td></tr>`).join("")||(historyRows.length?'<tr><td colspan="4">Ningún registro coincide con los filtros.</td></tr>':'<tr><td colspan="4">Todavía no hay actividad.</td></tr>');
+}
+$("#history-search").addEventListener("input",renderHistory);
+$("#history-kind").addEventListener("change",renderHistory);
+$("#history-result").addEventListener("change",renderHistory);
 function formatOwner(owner){const d=String(owner||"").replace(/\D/g,"");return d?"+"+d:""}
 function hideLinkBoxes(){
   const qr=$("#qr-box"),pair=$("#pairing-box");
@@ -306,14 +444,24 @@ function applyConnection(r,{silent=false}={}){
   return connected;
 }
 async function loadConnection({silent=false}={}){
-  try{return applyConnection(await request("/api/connection"),{silent})}
+  try{const r=await request("/api/connection");updateSendConnection(r);return applyConnection(r,{silent})}
   catch(e){
     $("#connection-title").textContent="No se pudo consultar";
     $("#connection-detail").textContent=e.message;
     $("#connection-account").classList.add("hidden");
     $("#disconnect-button").classList.add("hidden");
+    updateSendConnection({connected:false,error:e.message});
     return false;
   }
+}
+// Chip de Enviar: evita armar toda una campaña con WhatsApp desvinculado.
+function updateSendConnection(r){
+  const dot=$("#send-connection-dot"),text=$("#send-connection-text");
+  if(!dot||!text)return;
+  const configured=r.configured!==false,connected=!!r.connected;
+  dot.classList.toggle("ok",connected);
+  dot.classList.toggle("warn",configured&&!connected);
+  text.textContent=!configured?"Evolution API sin configurar":connected?"WhatsApp conectado · listo para enviar":`WhatsApp sin conexión${r.error?" · "+r.error:""} · vinculá antes de enviar`;
 }
 async function requestConnect(payload,button){
   if(button.disabled)return null;
@@ -335,3 +483,16 @@ $("#connect-button").onclick=async()=>{try{const r=await requestConnect({},$("#c
 function formatPairing(code){const c=String(code||"").replace(/\s/g,"");return c.length===8?c.slice(0,4)+"-"+c.slice(4):c}
 $("#pairing-button").onclick=async()=>{const input=$("#connect-phone"),number=input.value.trim();if(!number){toast("Escribí el número de WhatsApp con código de país.");return}try{const r=await requestConnect({number},$("#pairing-button"));if(!r)return;if(!r.pairingCode){hideLinkBoxes();toast("Evolution no devolvió un código. Puede que la instancia ya esté en modo QR: probá de nuevo en unos segundos o usá el QR.");return}hideLinkBoxes();$("#pairing-code").textContent=formatPairing(r.pairingCode);linkKind="pairing";linkExpiresAt=Date.now()+linkTtlMs;$("#pairing-box").classList.remove("hidden");updateLinkCountdown();startConnectionWatch();toast("Código generado. Ingresalo en WhatsApp.")}catch(e){toast(e.message)}};
 loadSummary();
+loadConnection({silent:true});
+// Si la página se recargó durante un envío, retomamos el seguimiento guardado.
+(async function restoreLastJob(){
+  const saved=loadLastJob();
+  if(!saved||!saved.jobId)return;
+  activeJob=saved;
+  $("#track-job").classList.remove("hidden");
+  try{
+    const j=await request("/api/jobs/"+encodeURIComponent(saved.jobId));
+    if(j.status!=="running"&&j.status!=="queued"){activeJob.last=j;showJobResult(j);return}
+  }catch{}
+  monitorJob(saved.jobId,saved.total,saved.estimatedMs);
+})();

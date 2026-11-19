@@ -63,6 +63,37 @@ test("el servidor valida firma de archivos, límite de cantidad e idempotencia",
   assert.match(server, /maxSendFiles: MAX_SEND_FILES/);
 });
 
+test("la clave de idempotencia depende del contenido, no del último intento", () => {
+  assert.match(app, /function campaignKey\(type, text, ids, files\)/);
+  assert.match(app, /const key=campaignKey\(type,\$\("#send-text"\)\.value,ids,files\)/);
+  assert.ok(!/const key=pendingSendKey\|\|/.test(app), "no debe reutilizar una clave vieja");
+  assert.equal((app.match(/pendingSendKey=null/g) || []).length, 4,
+    "debe limpiarse al terminar, al fallar el sondeo, al expirar y al limpiar el composer");
+});
+
+test("el front muestra el estado en cola y sigue sondeando", () => {
+  assert.match(app, /if\(j\.status==="queued"\)\{/);
+  assert.match(app, /En cola \(puesto \$\{j\.queuePosition\|\|1\}\)/);
+  assert.match(app, /start\.queued\?`En cola \(puesto \$\{start\.queuePosition\}\)/);
+  assert.match(app, /activeJob\.last\.status!=="queued"/);
+});
+
+test("el servidor serializa las campañas en una cola global", () => {
+  assert.match(server, /const sendQueue = \[\]/);
+  assert.match(server, /function pumpSendQueue\(\)/);
+  assert.match(server, /function enqueueSend\(job, params\)/);
+  assert.match(server, /enqueueSend\(job, \{ type, text: cleanText, contacts, media \}\)/);
+  assert.match(server, /id, status: "queued"/);
+  assert.match(server, /queuePosition: index >= 0 \? index \+ 1 : 0/);
+  assert.match(server, /queueWaitMs: wait/);
+  assert.match(server, /estimatedMs: estimatedJobMs\(total\) \+ wait/);
+});
+
+test("el progreso conserva el mensaje de cola y el resultado final", () => {
+  assert.ok(app.includes('renderJobProgress(j,`En cola (puesto ${j.queuePosition||1})'));
+  assert.ok(app.includes('<p class="job-summary">Proceso finalizado. Enviados: ${j.sent}. Fallidos: ${j.failed}.</p>'));
+});
+
 test("el chequeo de tamaño total solo aplica a multimedia", () => {
   const send = server.match(/app\.post\("\/api\/send"[\s\S]*?\n\}\);/);
   assert.ok(send, "falta /api/send");
