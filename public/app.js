@@ -5,6 +5,8 @@ let toastTimer;
 let selectedRecipients = new Set();
 let authorizedCount = 0;
 let focusBeforeModal = null;
+let focusBeforeConfirm = null;
+let confirmResolver = null;
 const MAX_TEXT = 4096, MAX_CAPTION = 1024;
 let maxSendFiles = 10;
 let activeJob = null;          // último job enviado, para poder reanudar el seguimiento
@@ -37,11 +39,47 @@ async function exportContacts(){try{if(!contacts.length)await loadContacts();if(
 $("#export-contacts").onclick=exportContacts;
 function openEdit(id){const c=contacts.find(x=>x.id===id);if(!c)return;focusBeforeModal=document.activeElement;const f=$("#edit-contact");f.elements.id.value=c.id;f.elements.name.value=c.name||"";f.elements.phone.value=c.phone||"";f.elements.dni.value=c.dni||"";f.elements.optIn.checked=!!c.optIn;$("#edit-modal").classList.remove("hidden");f.elements.name.focus()}
 function closeEdit(){const modal=$("#edit-modal");if(modal.classList.contains("hidden"))return;modal.classList.add("hidden");if(focusBeforeModal&&typeof focusBeforeModal.focus==="function")focusBeforeModal.focus();focusBeforeModal=null}
+// Confirmaciones accesibles, en reemplazo del diálogo nativo.
+function askConfirm(message,{title="Confirmar acción",acceptLabel="Confirmar",danger=false}={}){
+  if(confirmResolver)return Promise.resolve(false);
+  const modal=$("#confirm-modal");
+  $("#confirm-modal-title").textContent=title;
+  $("#confirm-modal-message").textContent=message;
+  const accept=$("#confirm-accept");
+  accept.textContent=acceptLabel;
+  accept.classList.toggle("danger",!!danger);
+  focusBeforeConfirm=document.activeElement;
+  modal.classList.remove("hidden");
+  accept.focus();
+  return new Promise(resolve=>{confirmResolver=resolve});
+}
+function closeConfirm(result){
+  const modal=$("#confirm-modal");
+  if(modal.classList.contains("hidden"))return;
+  modal.classList.add("hidden");
+  const resolve=confirmResolver;confirmResolver=null;
+  if(focusBeforeConfirm&&typeof focusBeforeConfirm.focus==="function")focusBeforeConfirm.focus();
+  focusBeforeConfirm=null;
+  if(resolve)resolve(!!result);
+}
 // Mantiene el foco dentro del modal mientras está abierto.
-function trapModalFocus(ev){if(ev.key!=="Tab")return;const modal=$("#edit-modal");if(modal.classList.contains("hidden"))return;const items=$$("#edit-modal button, #edit-modal input, #edit-modal select, #edit-modal textarea, #edit-modal a[href]").filter(el=>!el.disabled&&el.offsetParent!==null);if(!items.length)return;const first=items[0],last=items[items.length-1];if(ev.shiftKey&&document.activeElement===first){ev.preventDefault();last.focus()}else if(!ev.shiftKey&&document.activeElement===last){ev.preventDefault();first.focus()}}
+function trapModalFocus(ev){
+  if(ev.key!=="Tab")return;
+  const confirm=$("#confirm-modal"),edit=$("#edit-modal");
+  const modal=!confirm.classList.contains("hidden")?confirm:!edit.classList.contains("hidden")?edit:null;
+  if(!modal)return;
+  const items=[...modal.querySelectorAll("button, input, select, textarea, a[href]")].filter(el=>!el.disabled&&el.offsetParent!==null);
+  if(!items.length)return;
+  const first=items[0],last=items[items.length-1];
+  if(ev.shiftKey&&document.activeElement===first){ev.preventDefault();last.focus()}
+  else if(!ev.shiftKey&&document.activeElement===last){ev.preventDefault();first.focus()}
+}
 async function restoreContact(c){try{await request("/api/contacts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:c.name,phone:c.phone,dni:c.dni,optIn:c.optIn})});toast("Cliente restaurado");refreshContacts();loadSummary()}catch(e){toast(e.message)}}
 $("#edit-cancel").onclick=closeEdit;
 $("#edit-modal").addEventListener("click",e=>{if(e.target.id==="edit-modal")closeEdit()});
+$("#confirm-cancel").onclick=()=>closeConfirm(false);
+$("#confirm-accept").onclick=()=>closeConfirm(true);
+$("#confirm-modal").addEventListener("click",e=>{if(e.target.id==="confirm-modal")closeConfirm(false)});
 $("#edit-contact").addEventListener("submit",async e=>{e.preventDefault();const f=e.target;const btn=submitButton(f);btn.disabled=true;try{await request("/api/contacts/"+f.elements.id.value,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:f.elements.name.value,phone:f.elements.phone.value,dni:f.elements.dni.value,optIn:f.elements.optIn.checked})});closeEdit();toast("Cliente actualizado");refreshContacts();loadSummary()}catch(err){toast(err.message)}finally{btn.disabled=false}});
 // --- Formato de texto al estilo WhatsApp -----------------------------------
 function lineBounds(value,start,end){const from=value.lastIndexOf("\n",start-1)+1;let to=value.indexOf("\n",end);if(to===-1)to=value.length;return[from,to]}
@@ -57,7 +95,7 @@ const EMOJI_GROUPS=[{name:"Caras",items:"😀 😃 😄 😁 😆 😅 😂 🙂
 function insertAtCursor(ta,text){const value=ta.value,start=ta.selectionStart,end=ta.selectionEnd;ta.value=value.slice(0,start)+text+value.slice(end);const pos=start+text.length;ta.setSelectionRange(pos,pos);ta.focus()}
 function closeEmojiPanels(){$$(".emoji-panel").forEach(p=>p.classList.add("hidden"))}
 function attachFormatting(){$$(".format-toolbar").forEach(tb=>{const ta=document.getElementById(tb.dataset.formatTarget);if(!ta)return;const preview=document.querySelector('[data-preview-for="'+tb.dataset.formatTarget+'"]');const counter=document.querySelector('[data-count-for="'+tb.dataset.formatTarget+'"]');const typeSel=document.getElementById(tb.dataset.formatTarget==="send-text"?"send-type":"status-type");const update=()=>{if(preview)preview.innerHTML=ta.value.trim()?renderWhatsApp(ta.value):'<span class="muted">La vista previa aparecerá acá a medida que escribas.</span>';if(counter){const n=ta.value.length;const isText=!!(typeSel&&typeSel.value==="text");const max=isText?MAX_TEXT:MAX_CAPTION;counter.textContent=n+" / "+max+" caracteres"+(n>max?" · supera el límite para "+(isText?"mensajes de texto":"imágenes y videos"):"");counter.classList.toggle("warn",n>max)}};tb.querySelectorAll("button[data-fmt]").forEach(btn=>{btn.setAttribute("aria-label",btn.title||btn.textContent);btn.onclick=()=>{applyFormat(ta,btn.dataset.fmt);ta.dispatchEvent(new Event("input"));update()}});const wrap=document.createElement("span");wrap.className="emoji-wrap";const ebtn=document.createElement("button");ebtn.type="button";ebtn.className="emoji-btn";ebtn.title="Insertar emoji";ebtn.setAttribute("aria-label","Insertar emoji");ebtn.textContent="😀";const panel=document.createElement("div");panel.className="emoji-panel hidden";EMOJI_GROUPS.forEach(g=>{const t=document.createElement("div");t.className="emoji-group-title";t.textContent=g.name;panel.appendChild(t);const grid=document.createElement("div");grid.className="emoji-grid";g.items.forEach(e=>{const b=document.createElement("button");b.type="button";b.className="emoji-item";b.textContent=e;b.setAttribute("aria-label","Emoji "+e);b.onclick=()=>{insertAtCursor(ta,e);ta.dispatchEvent(new Event("input"));update();if(window.matchMedia("(max-width:650px)").matches)closeEmojiPanels()};grid.appendChild(b)});panel.appendChild(grid)});ebtn.onclick=ev=>{ev.stopPropagation();const open=!panel.classList.contains("hidden");closeEmojiPanels();if(!open)panel.classList.remove("hidden")};document.addEventListener("click",ev=>{if(!wrap.contains(ev.target))panel.classList.add("hidden")});wrap.appendChild(ebtn);wrap.appendChild(panel);tb.appendChild(wrap);ta.addEventListener("input",update);update()})}
-document.addEventListener("keydown",ev=>{if(ev.key==="Escape"){closeEmojiPanels();closeEdit()}trapModalFocus(ev)});
+document.addEventListener("keydown",ev=>{if(ev.key==="Escape"){closeEmojiPanels();closeEdit();closeConfirm(false)}trapModalFocus(ev)});
 attachFormatting();
 // --- Borradores de redacción (se guardan en el servidor) --------------------
 // El borrador vive en el servidor (SQLite), así está disponible desde la PC y
@@ -86,7 +124,7 @@ function fillTemplateSelect(sec){const sel=document.querySelector('[data-templat
 async function loadTemplates(){try{const list=await request("/api/templates");["send","status"].forEach(sec=>{templateCache[sec]=list;fillTemplateSelect(sec)})}catch{}}
 $$("[data-template-for]").forEach(sel=>{sel.onchange=()=>{const sec=sel.dataset.templateFor;const id=sel.value;selectedTemplate[sec]=id;if(id){const t=templateCache[sec].find(x=>x.id===id);if(t){const ta=$(DRAFT_FIELDS[sec].text);ta.value=t.text;ta.dispatchEvent(new Event("input"));scheduleDraftSave(sec)}}updateTemplateButtons(sec)}});
 $$("[data-template-save]").forEach(b=>b.onclick=async()=>{const sec=b.dataset.templateSave;const ta=$(DRAFT_FIELDS[sec].text);const text=ta.value.trim();if(!text)return toast("Escribí el texto antes de guardarlo como plantilla.");const cur=selectedTemplate[sec];const existing=cur?templateCache[sec].find(t=>t.id===cur):null;const name=prompt("Nombre de la plantilla:",existing?existing.name:"");if(name==null)return;try{if(existing){await request("/api/templates/"+existing.id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim()||existing.name,text})});toast("Plantilla actualizada")}else{const created=await request("/api/templates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim(),text})});selectedTemplate[sec]=created.id;toast("Plantilla guardada")}await loadTemplates()}catch(e){toast(e.message)}});
-$$("[data-template-delete]").forEach(b=>b.onclick=async()=>{const sec=b.dataset.templateDelete;const id=selectedTemplate[sec];if(!id)return;const t=templateCache[sec].find(x=>x.id===id);if(!confirm(`¿Eliminar la plantilla "${t?t.name:""}"?`))return;try{await request("/api/templates/"+id,{method:"DELETE"});selectedTemplate[sec]="";toast("Plantilla eliminada");await loadTemplates()}catch(e){toast(e.message)}});
+$$("[data-template-delete]").forEach(b=>b.onclick=async()=>{const sec=b.dataset.templateDelete;const id=selectedTemplate[sec];if(!id)return;const t=templateCache[sec].find(x=>x.id===id);if(!await askConfirm(`¿Eliminar la plantilla "${t?t.name:""}"?`,{title:"Eliminar plantilla",acceptLabel:"Eliminar",danger:true}))return;try{await request("/api/templates/"+id,{method:"DELETE"});selectedTemplate[sec]="";toast("Plantilla eliminada");await loadTemplates()}catch(e){toast(e.message)}});
 loadTemplates();
 $("#add-contact").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.target);const btn=submitButton(e.target);btn.disabled=true;try{await request("/api/contacts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:f.get("name"),phone:f.get("phone"),dni:f.get("dni"),optIn:f.has("optIn")})});e.target.reset();toast("Cliente guardado");refreshContacts();loadSummary()}catch(err){toast(err.message)}finally{btn.disabled=false}});
 $("#import-form").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.target);const btn=submitButton(e.target);btn.disabled=true;try{const r=await request("/api/import",{method:"POST",body:f});toast(`Importados: ${r.added}. Duplicados: ${r.duplicates}. Inválidos: ${r.invalid}.`);e.target.reset();refreshContacts();loadSummary()}catch(err){toast(err.message)}finally{btn.disabled=false}});
@@ -176,7 +214,7 @@ $("#send-button").onclick=async()=>{
   if(type!=="text"&&!files.length)return toast("Adjuntá al menos una imagen o video.");
   if(files.length>maxSendFiles)return toast(`No podés adjuntar más de ${maxSendFiles} archivos.`);
   const messages=ids.length*Math.max(1,files.length);
-  if(!confirm(`Vas a enviar ${messages} mensaje${messages===1?"":"s"} a ${ids.length} cliente${ids.length===1?"":"s"}${files.length>1?" ("+files.length+" archivos por cliente)":""}. ¿Continuar?`))return;
+  if(!await askConfirm(`Vas a enviar ${messages} mensaje${messages===1?"":"s"} a ${ids.length} cliente${ids.length===1?"":"s"}${files.length>1?" ("+files.length+" archivos por cliente)":""}. ¿Continuar?`,{title:"Confirmar envío",acceptLabel:"Enviar"}))return;
   const fd=new FormData();
   fd.append("type",type);
   fd.append("text",$("#send-text").value);
@@ -203,7 +241,7 @@ $("#track-job").onclick=async()=>{
   await monitorJob(activeJob.jobId,activeJob.total,activeJob.estimatedMs);
 };
 $("#status-type").onchange=()=>{$("#status-file-wrap").classList.toggle("hidden",$("#status-type").value==="text");$("#status-file").accept=$("#status-type").value==="video"?"video/mp4":"image/*";$("#status-text").dispatchEvent(new Event("input"))};
-$("#status-button").onclick=async()=>{const type=$("#status-type").value;const fd=new FormData();fd.append("type",type);fd.append("text",$("#status-text").value);if($("#status-file").files[0])fd.append("file",$("#status-file").files[0]);if(!confirm("¿Publicar este contenido en el Estado de WhatsApp del número conectado?"))return;const b=$("#status-button");b.disabled=true;b.textContent="Publicando...";try{await request("/api/status",{method:"POST",body:fd});$("#status-file").value="";$("#status-result").classList.remove("hidden","error");$("#status-result").textContent="Solicitud de publicación enviada a WhatsApp.";toast("Estado enviado")}catch(e){$("#status-result").classList.remove("hidden");$("#status-result").classList.add("error");$("#status-result").textContent=e.message}finally{b.disabled=false;b.textContent="Publicar estado"}};
+$("#status-button").onclick=async()=>{const type=$("#status-type").value;const fd=new FormData();fd.append("type",type);fd.append("text",$("#status-text").value);if($("#status-file").files[0])fd.append("file",$("#status-file").files[0]);if(!await askConfirm("¿Publicar este contenido en el Estado de WhatsApp del número conectado?",{title:"Publicar estado",acceptLabel:"Publicar"}))return;const b=$("#status-button");b.disabled=true;b.textContent="Publicando...";try{await request("/api/status",{method:"POST",body:fd});$("#status-file").value="";$("#status-result").classList.remove("hidden","error");$("#status-result").textContent="Solicitud de publicación enviada a WhatsApp.";toast("Estado enviado")}catch(e){$("#status-result").classList.remove("hidden");$("#status-result").classList.add("error");$("#status-result").textContent=e.message}finally{b.disabled=false;b.textContent="Publicar estado"}};
 async function loadHistory(){try{const h=await request("/api/history");$("#history-body").innerHTML=h.map(x=>`<tr><td data-label="Fecha">${new Date(x.at).toLocaleString()}</td><td data-label="Acción">${x.kind==="status"?"Estado":x.kind==="connection"?"Conexión":"Mensaje"} · ${esc(x.type||"")}</td><td data-label="Cliente / resultado">${esc(x.name||x.phone||"Publicación de estado")}</td><td data-label="Estado"><span class="pill ${x.ok?"yes":"no"}">${x.ok?"Procesado":"Error"}</span></td></tr>`).join("")||'<tr><td colspan="4">Todavía no hay actividad.</td></tr>'}catch(e){toast(e.message)}}
 function formatOwner(owner){const d=String(owner||"").replace(/\D/g,"");return d?"+"+d:""}
 function hideLinkBoxes(){
@@ -284,7 +322,7 @@ async function requestConnect(payload,button){
   try{
     let r=await request("/api/connect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload||{})});
     if(r.needsCreate){
-      if(!confirm(r.error||"La instancia no existe. ¿Crearla?"))return null;
+      if(!await askConfirm(r.error||"La instancia no existe. ¿Crearla?",{title:"Crear instancia",acceptLabel:"Crear"}))return null;
       r=await request("/api/connect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(payload||{}),create:true})});
     }
     if(!r.ok)throw new Error(r.error||"No se pudo generar la vinculación.");
@@ -292,7 +330,7 @@ async function requestConnect(payload,button){
   }finally{button.disabled=false;button.textContent=original}
 }
 $("#refresh-connection").onclick=()=>loadConnection();
-$("#disconnect-button").onclick=async()=>{if(!confirm("¿Desvincular este número de WhatsApp? Vas a tener que volver a vincularlo para enviar mensajes."))return;const b=$("#disconnect-button");b.disabled=true;b.textContent="Desvinculando...";try{await request("/api/disconnect",{method:"POST"});toast("Número desvinculado");hideLinkBoxes();stopConnectionWatch();await loadConnection()}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent="Desvincular"}};
+$("#disconnect-button").onclick=async()=>{if(!await askConfirm("¿Desvincular este número de WhatsApp? Vas a tener que volver a vincularlo para enviar mensajes.",{title:"Desvincular WhatsApp",acceptLabel:"Desvincular",danger:true}))return;const b=$("#disconnect-button");b.disabled=true;b.textContent="Desvinculando...";try{await request("/api/disconnect",{method:"POST"});toast("Número desvinculado");hideLinkBoxes();stopConnectionWatch();await loadConnection()}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent="Desvincular"}};
 $("#connect-button").onclick=async()=>{try{const r=await requestConnect({},$("#connect-button"));if(!r)return;if(!r.qr){hideLinkBoxes();toast("Evolution API no devolvió un QR. Revisá la instancia y su estado.");return}hideLinkBoxes();$("#qr-image").src=r.qr;const dl=$("#qr-download");if(dl){dl.href=r.qr;dl.download="whatsapp-qr."+(r.qrMime==="image/svg+xml"?"svg":"png");dl.removeAttribute("aria-disabled");dl.removeAttribute("tabindex")}linkKind="qr";linkExpiresAt=Date.now()+linkTtlMs;$("#qr-box").classList.remove("hidden");updateLinkCountdown();startConnectionWatch()}catch(e){toast(e.message)}};
 function formatPairing(code){const c=String(code||"").replace(/\s/g,"");return c.length===8?c.slice(0,4)+"-"+c.slice(4):c}
 $("#pairing-button").onclick=async()=>{const input=$("#connect-phone"),number=input.value.trim();if(!number){toast("Escribí el número de WhatsApp con código de país.");return}try{const r=await requestConnect({number},$("#pairing-button"));if(!r)return;if(!r.pairingCode){hideLinkBoxes();toast("Evolution no devolvió un código. Puede que la instancia ya esté en modo QR: probá de nuevo en unos segundos o usá el QR.");return}hideLinkBoxes();$("#pairing-code").textContent=formatPairing(r.pairingCode);linkKind="pairing";linkExpiresAt=Date.now()+linkTtlMs;$("#pairing-box").classList.remove("hidden");updateLinkCountdown();startConnectionWatch();toast("Código generado. Ingresalo en WhatsApp.")}catch(e){toast(e.message)}};

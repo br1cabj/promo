@@ -8,7 +8,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { parse } = require("csv-parse/sync");
 const { createStore, StoreError } = require("./lib/db");
-const { normalizePhone, fallbackPhone } = require("./lib/phone");
+const { evoError, extractQr, normalizeLinkNumber, connectResponse } = require("./lib/connection");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -532,48 +532,6 @@ app.post("/api/import", upload.single("file"), (req, res) => {
   res.json({ added, duplicates, invalid, total: rows.length });
 });
 
-// Mensaje de error legible a partir de una respuesta de Evolution API (formatos variados).
-function evoError(e) {
-  const code = String(e?.code || "");
-  const raw = String(e?.message || "");
-  if (["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "ECONNRESET", "EPROTO"].includes(code) ||
-      /timeout of \d+ms exceeded|network error/i.test(raw)) {
-    return "No se pudo contactar con Evolution API. Revisá EVOLUTION_URL y que el servicio esté activo.";
-  }
-  const d = e?.response?.data;
-  const msg = d?.response?.message || d?.error?.message || d?.message || d?.error || e?.message;
-  if (Array.isArray(msg)) return msg.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ");
-  if (msg && typeof msg === "object") return JSON.stringify(msg);
-  return typeof msg === "string" && msg ? msg : "Error al comunicarse con Evolution API.";
-}
-
-// Evolution devuelve el QR en formatos distintos según versión: base64 crudo,
-// data URI, objeto {base64}, e incluso SVG. Lo normalizamos a una data URI que
-// el navegador pueda mostrar y descargar con la extensión correcta.
-function extractQr(data) {
-  const raw = data?.base64 ?? data?.qrcode?.base64 ?? data?.qrcode ?? data?.qr ?? null;
-  if (typeof raw !== "string") return null;
-  const value = raw.trim();
-  if (!value) return null;
-  if (/^data:image\/[a-z0-9.+-]+[;]/i.test(value)) {
-    return { src: value, mime: value.slice(5, value.indexOf(";")) };
-  }
-  if (/^<svg[\s>]/i.test(value)) {
-    return { src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(value)}`, mime: "image/svg+xml" };
-  }
-  if (/^[A-Za-z0-9+/=\r\n]+$/.test(value)) {
-    const compact = value.replace(/\s/g, "");
-    let decoded = "";
-    try { decoded = Buffer.from(compact, "base64").toString("utf8").slice(0, 200).trim(); } catch { /* no es base64 */ }
-    if (/^<svg[\s>]/i.test(decoded)) {
-      const svg = Buffer.from(compact, "base64").toString("utf8");
-      return { src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`, mime: "image/svg+xml" };
-    }
-    return { src: `data:image/png;base64,${compact}`, mime: "image/png" };
-  }
-  return null;
-}
-
 // Valida el texto antes de mandarlo: los límites de WhatsApp son 4096 para
 // mensajes de texto y 1024 para pies de imagen/video.
 function messageText(value, type) {
@@ -654,31 +612,16 @@ async function connectOrCreate(api, instanceName, number, allowCreate = false) {
 app.post("/api/connect", async (req, res) => {
   const rawNumber = String(req.body?.number ?? "").trim();
   const allowCreate = req.body?.create === true;
-  let number = null;
-  if (rawNumber) {
-    number = normalizePhone(rawNumber, DEFAULT_COUNTRY) || fallbackPhone(rawNumber, DEFAULT_COUNTRY);
-    number = number ? String(number).replace(/\D/g, "") : "";
-    if (!number || number.length < 8 || number.length > 15) {
-      return res.status(400).json({ error: "Ingresá un número válido con código de país (8 a 15 dígitos)." });
-    }
-  }
+  const link = normalizeLinkNumber(rawNumber, DEFAULT_COUNTRY);
+  if (link.error) return res.status(400).json({ error: link.error });
   const kind = rawNumber ? "pairing" : "qr";
   try {
-    const r = await connectOrCreate(evoClient(), config.instance, number || null, allowCreate);
+    const r = await connectOrCreate(evoClient(), config.instance, link.number, allowCreate);
     if (r && r.needsCreate) {
       return res.json({ ok: false, needsCreate: true, error: `La instancia "${config.instance}" no existe en Evolution API. ¿Crearla?` });
     }
-    const data = r.data || {};
-    const qr = extractQr(data);
-    const pairingCode = data.pairingCode || data.qrcode?.pairingCode || data.code || null;
     addHistory({ kind: "connection", ok: true, type: kind, name: kind === "pairing" ? "Código de vinculación generado" : "QR generado" });
-    res.json({
-      ok: true,
-      qr: qr ? qr.src : null,
-      qrMime: qr ? qr.mime : null,
-      pairingCode: pairingCode ? String(pairingCode) : null,
-      data
-    });
+    res.json(connectResponse(r.data || {}));
   } catch (e) {
     const error = evoError(e);
     addHistory({ kind: "connection", ok: false, type: kind, name: kind === "pairing" ? "Código de vinculación" : "QR", error });

@@ -103,6 +103,13 @@
       </form>
     </div>
   </div>
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">
+      <h3 id="confirm-modal-title">Confirmar acción</h3>
+      <p id="confirm-modal-message" class="muted"></p>
+      <div class="modal-actions"><button type="button" class="secondary" id="confirm-cancel">Cancelar</button><button type="button" class="primary" id="confirm-accept">Confirmar</button></div>
+    </div>
+  </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/app.js"></script>
 </body>

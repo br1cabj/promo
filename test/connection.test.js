@@ -9,10 +9,10 @@ const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
 const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 
-test("el servidor normaliza y valida el número de vinculación", () => {
-  assert.match(server, /const DEFAULT_COUNTRY = process\.env\.DEFAULT_COUNTRY \|\| "AR"/);
-  assert.match(server, /number = normalizePhone\(rawNumber, DEFAULT_COUNTRY\) \|\| fallbackPhone\(rawNumber, DEFAULT_COUNTRY\)/);
-  assert.match(server, /number\.length < 8 \|\| number\.length > 15/);
+test("el servidor delega la normalización al módulo puro", () => {
+  assert.match(server, /require\("\.\/lib\/connection"\)/);
+  assert.match(server, /const link = normalizeLinkNumber\(rawNumber, DEFAULT_COUNTRY\)/);
+  assert.match(server, /if \(link\.error\) return res\.status\(400\)/);
   assert.ok(html.includes('id="connect-phone"'), "falta #connect-phone");
   assert.ok(html.includes('pattern="[0-9+()\\s-]{8,20}" maxlength="20"'), "falta patrón y límite de longitud");
 });
@@ -23,25 +23,27 @@ test("un 404 no crea la instancia sin confirmación", () => {
   assert.match(fn[0], /allowCreate = false/);
   assert.match(fn[0], /if \(!allowCreate\) return \{ needsCreate: true \}/);
   assert.match(fn[0], /if \(e\.response\?\.status !== 404\) throw e/);
-  assert.match(app, /if\(r\.needsCreate\)\{\s*\n\s*if\(!confirm\(r\.error\|\|"La instancia no existe\. ¿Crearla\?"\)\)return null;/);
+  assert.match(app, /if\(r\.needsCreate\)\{\s*\n\s*if\(!await askConfirm\(r\.error\|\|"La instancia no existe\. ¿Crearla\?",\{title:"Crear instancia"/);
   assert.match(app, /create:true/);
   assert.ok(!server.includes("if (e.response?.status !== 404) throw e;\n    const payload"), "no debe crear automáticamente");
 });
 
-test("el QR se normaliza a data URI y se detecta SVG o formato inválido", () => {
-  assert.match(server, /function extractQr\(data\)/);
-  assert.match(server, /data\?\.base64 \?\? data\?\.qrcode\?\.base64 \?\? data\?\.qrcode \?\? data\?\.qr \?\? null/);
-  assert.match(server, /data:image\/svg\+xml;charset=utf-8/);
-  assert.match(server, /data:image\/png;base64/);
-  assert.match(server, /qrMime: qr \? qr\.mime : null/);
+test("el front usa la versión pública del QR y avisa si no hay imagen", () => {
+  assert.match(server, /res\.json\(connectResponse\(r\.data \|\| \{\}\)\)/);
   assert.match(app, /dl\.download="whatsapp-qr\."\+\(r\.qrMime==="image\/svg\+xml"\?"svg":"png"\)/);
   assert.match(app, /if\(!r\.qr\)\{hideLinkBoxes\(\);toast\("Evolution API no devolvió un QR/);
 });
 
-test("los errores de red se muestran con un mensaje amigable", () => {
-  assert.match(server, /function evoError\(e\)/);
-  assert.match(server, /ECONNREFUSED.*ENOTFOUND.*EAI_AGAIN.*ETIMEDOUT/);
-  assert.match(server, /No se pudo contactar con Evolution API\. Revisá EVOLUTION_URL/);
+test("el endpoint no reenvía el payload crudo de Evolution", () => {
+  const endpoint = server.match(/app\.post\("\/api\/connect"[\s\S]*?\n\}\);/);
+  assert.ok(endpoint, "falta /api/connect");
+  assert.match(endpoint[0], /connectResponse\(r\.data \|\| \{\}\)/);
+  assert.ok(!/\bdata:\s*data\b/.test(endpoint[0]), "no debe devolver data cruda");
+  assert.ok(!/^\s*data\s*,\s*$/m.test(endpoint[0]), "no debe devolver data cruda");
+});
+
+test("los errores amigables vienen del módulo compartido", () => {
+  assert.match(server, /const \{ evoError, extractQr, normalizeLinkNumber, connectResponse \} = require\("\.\/lib\/connection"\)/);
 });
 
 test("sin configuración el front avisa y no sugiere vincular", () => {
@@ -72,4 +74,16 @@ test("los botones se deshabilitan y se registra la auditoría", () => {
   assert.match(server, /kind: "connection"/);
   assert.match(server, /type: "disconnect", name: "Número desvinculado"/);
   assert.match(app, /x\.kind==="connection"\?"Conexión"/);
+});
+
+test("los confirms nativos se reemplazan por un modal accesible", () => {
+  assert.ok(!/window\.confirm\s*\(/.test(app), "no debe usar window.confirm");
+  assert.ok(!/if\(!confirm\(/.test(app), "no debe usar confirm() directo");
+  assert.ok(html.includes('id="confirm-modal" class="modal hidden"'), "falta #confirm-modal");
+  assert.match(html, /role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message"/);
+  assert.match(html, /id="confirm-accept"/);
+  assert.match(app, /function askConfirm\(message/);
+  assert.match(app, /function closeConfirm\(result\)/);
+  assert.match(app, /if\(ev\.key==="Escape"\)\{closeEmojiPanels\(\);closeEdit\(\);closeConfirm\(false\)\}/);
+  assert.equal((app.match(/await askConfirm\(/g) || []).length, 5, "debe reemplazar los 5 confirms");
 });
