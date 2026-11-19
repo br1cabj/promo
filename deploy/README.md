@@ -107,8 +107,10 @@ VPS chico; podés ajustarlos.
 ## 6. Conectar WhatsApp
 
 1. En el panel, entrá a la página **WhatsApp**.
-2. Tocá **Conectar**. El panel crea la instancia automáticamente (si no existe) y
-   muestra el **QR**.
+2. Tocá **Conectar**. Si la instancia no existe, el panel te pide confirmación
+   antes de crearla (para evitar sesiones accidentales por un nombre mal
+   configurado). Confirmá y muestra el **QR**; desde el celular podés usar el
+   **código de vinculación** en su lugar.
 3. Escanealo desde el teléfono: WhatsApp → **Dispositivos vinculados** → **Vincular
    un dispositivo**.
 4. Cuando la página muestre *"WhatsApp conectado"*, ya podés importar contactos y enviar.

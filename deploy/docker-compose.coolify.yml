@@ -14,8 +14,8 @@
 #   - Environment Variables: cargá las de deploy/env.example
 #
 # Persistencia: los volúmenes con nombre sobreviven a los redeploys.
-# La instancia de WhatsApp se crea sola la primera vez que tocás "Conectar"
-# en la página WhatsApp del panel.
+# La instancia de WhatsApp se crea al confirmar el aviso que muestra el panel
+# la primera vez que tocás "Conectar" en la página WhatsApp (si no existe).
 # =============================================================================
 
 services:
