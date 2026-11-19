@@ -192,7 +192,13 @@ Además del borrador, podés guardar **plantillas**: mensajes ya escritos y reut
 - **Deshacer al eliminar**: al borrar un cliente aparece un aviso con el botón **Deshacer** durante unos segundos; restaura el contacto con sus datos (nombre, teléfono, DNI y autorización).
 - **Borradores en el servidor**: el texto y los destinatarios que estás redactando se guardan solos y se restauran al volver, estés en la PC o en el celular (ver *Borradores*).
 - **Teclado y accesibilidad**: `Esc` cierra el modal y el selector de emojis; los botones de formato y emoji tienen etiquetas `aria`; el aviso (toast) se anuncia con `aria-live`.
-- **Pensado para celulares**: la barra de navegación queda fija abajo; las listas de **Clientes** e **Historial** se muestran como **tarjetas** (una por registro, con etiquetas) en lugar de una tabla con scroll horizontal; el selector de emojis se abre como una hoja inferior (nunca se sale de la pantalla) y se cierra al elegir; el aviso con **Deshacer** aparece por encima de la barra para no taparla; y todos los botones y campos tienen un tamaño táctil de ~44px.
+- **Pensado para celulares**: el menú es un **cajón lateral** con iconos y etiquetas completas; las listas de **Clientes** e **Historial** se muestran como **tarjetas** (una por registro, con etiquetas) en lugar de una tabla con scroll horizontal; el selector de emojis se cierra al elegir; y todos los botones y campos tienen un tamaño táctil de ~44px.
+
+## Iconos
+
+Los iconos son **Lucide** (licencia ISC), con el mismo trazo de 24×24 que usa el panel. Se generan desde el paquete `lucide-static` con `npm run icons`, que actualiza `public/icons.js` a partir de los SVG originales. Ese archivo se commitea: **la app no necesita CDN ni fuentes externas** (la CSP solo permite recursos `self`) y en producción no hace falta instalar `devDependencies`.
+
+Los símbolos del toolbar de formato (`N`, `C`, `S`, `{ }`, `❝`, listas) siguen siendo texto a propósito: son semánticos y un icono los haría menos claros.
 
 ## Datos y almacenamiento
 

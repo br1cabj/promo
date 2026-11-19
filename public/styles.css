@@ -7,6 +7,10 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
 @media(max-width:900px){.sidebar{width:190px}main{width:calc(100% - 190px);padding:25px 22px}.two-col{grid-template-columns:1fr}}
 .menu-button,.sidebar-close,.nav-overlay{display:none}
 .nav svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+.icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+.brand-icon .icon,.quick b .icon{width:19px;height:19px}
+.welcome-mark .icon{width:90px;height:90px;stroke-width:1}
+.account-avatar .icon{width:20px;height:20px}
 .nav-overlay{position:fixed;inset:0;z-index:25;background:rgba(16,37,29,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
 .format-details>summary{cursor:pointer;font-size:12px;font-weight:650;color:var(--green);padding:6px 0;min-height:32px}
 .format-details[open] .format-toolbar{margin:0 0 10px}
@@ -60,6 +64,7 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
   .welcome{padding:23px;min-height:155px}
   .welcome h2{font-size:23px}
   .welcome-mark{font-size:75px;margin:0}
+  .welcome-mark .icon{width:64px;height:64px}
   .stats{grid-template-columns:repeat(2,1fr);gap:8px}
   .stat{padding:12px 10px}
   .stat strong{font-size:23px}

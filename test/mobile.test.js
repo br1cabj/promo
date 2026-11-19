@@ -35,13 +35,14 @@ test("2. el botón del menú mantiene estado accesible y cierra con Escape", () 
   assert.ok(app.includes('const container=modal||(side&&side.classList.contains("open")?side:null)'));
 });
 
-test("3. los iconos SVG y las etiquetas completas reemplazan a los caracteres de 9px", () => {
+test("3. los iconos Lucide y las etiquetas completas reemplazan a los caracteres de 9px", () => {
   const nav = html.slice(html.indexOf('<nav id="sidebar-nav">'), html.indexOf("</nav>"));
-  assert.equal((nav.match(/<svg viewBox="0 0 24 24"/g) || []).length, 6);
+  assert.equal((nav.match(/<i data-icon="[a-z-]+"><\/i>/g) || []).length, 6);
   for (const label of ["Inicio", "Clientes", "Enviar mensaje", "Estados", "Historial", "WhatsApp"]) {
     assert.ok(nav.includes(`<span>${label}</span>`), `falta la etiqueta ${label}`);
   }
-  assert.ok(css.includes(".nav svg{"));
+  assert.ok(app.includes("function hydrateIcons()"));
+  assert.ok(css.includes(".icon{"));
   assert.ok(!css.includes(".nav span{font-size:9px}"), "quedaron etiquetas diminutas");
 });
 
