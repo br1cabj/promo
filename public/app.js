@@ -6,6 +6,10 @@ let selectedRecipients = new Set();
 let authorizedCount = 0;
 let focusBeforeModal = null;
 const MAX_TEXT = 4096, MAX_CAPTION = 1024;
+let maxSendFiles = 10;
+let activeJob = null;          // último job enviado, para poder reanudar el seguimiento
+let monitoringJob = false;
+let pendingSendKey = null;     // idempotencia: reutilizar si se pierde la respuesta
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function toast(msg,action){const el=$("#toast");el.innerHTML="";const span=document.createElement("span");span.textContent=msg;el.appendChild(span);if(action){const btn=document.createElement("button");btn.type="button";btn.className="toast-action";btn.textContent=action.label;btn.onclick=()=>{clearTimeout(toastTimer);el.classList.remove("show");action.onClick()};el.appendChild(btn)}el.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove("show"),action?7000:2800)}
 async function request(url, options={}){const r=await fetch(url,options);let data={};try{data=await r.json()}catch{}if(r.status===401){window.location.href="/login";throw new Error("Sesión expirada")}if(!r.ok)throw new Error(data.error||"Ocurrió un error");return data}
@@ -14,7 +18,7 @@ function submitButton(form){return form.querySelector('button[type="submit"]')||
 function showPage(name){$$(".page").forEach(p=>p.classList.add("hidden"));$("#page-"+name).classList.remove("hidden");$$(".nav").forEach(b=>b.classList.toggle("active",b.dataset.page===name));$("#page-title").textContent=({home:"Inicio",contacts:"Clientes",send:"Enviar mensaje",status:"Estados",history:"Historial",connection:"WhatsApp"})[name];if(name==="contacts")refreshContacts();if(name==="send")renderRecipients();if(name==="history")loadHistory();if(name==="connection")loadConnection()}
 $$(".nav").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));
 $$(".quick").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.go)));
-async function loadSummary(){try{const s=await request("/api/summary");$("#stat-total").textContent=s.total;$("#stat-optin").textContent=s.optedIn;$("#stat-history").textContent=s.history}catch(e){toast(e.message)}}
+async function loadSummary(){try{const s=await request("/api/summary");$("#stat-total").textContent=s.total;$("#stat-optin").textContent=s.optedIn;$("#stat-history").textContent=s.history;if(Number(s.maxSendFiles)>0)maxSendFiles=Number(s.maxSendFiles)}catch(e){toast(e.message)}}
 async function loadContacts(){contacts=await request("/api/contacts");pruneSelected();return contacts}
 // Quita de la selección los contactos que ya no existen o perdieron la
 // autorización: así el contador y el confirm coinciden con lo que envía el API.
@@ -82,13 +86,117 @@ loadTemplates();
 $("#add-contact").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.target);const btn=submitButton(e.target);btn.disabled=true;try{await request("/api/contacts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:f.get("name"),phone:f.get("phone"),dni:f.get("dni"),optIn:f.has("optIn")})});e.target.reset();toast("Cliente guardado");refreshContacts();loadSummary()}catch(err){toast(err.message)}finally{btn.disabled=false}});
 $("#import-form").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.target);const btn=submitButton(e.target);btn.disabled=true;try{const r=await request("/api/import",{method:"POST",body:f});toast(`Importados: ${r.added}. Duplicados: ${r.duplicates}. Inválidos: ${r.invalid}.`);e.target.reset();refreshContacts();loadSummary()}catch(err){toast(err.message)}finally{btn.disabled=false}});
 function renderRecipients(){loadContacts().then(renderRecipientList).catch(e=>toast(e.message))}
-function renderRecipientList(){const q=($("#recipient-search").value||"").toLowerCase();const eligible=contacts.filter(c=>c.optIn);authorizedCount=eligible.length;const visible=eligible.filter(c=>(c.name+" "+c.phone).toLowerCase().includes(q));$("#send-recipients").innerHTML=visible.map(c=>`<label class="recipient"><input type="checkbox" class="recipient-check" value="${c.id}"${selectedRecipients.has(c.id)?" checked":""}><span>${esc(c.name||"Sin nombre")}<small>${esc(c.phone)}</small></span></label>`).join("")||(eligible.length?'<div class="recipient">Ningún cliente autorizado coincide con la búsqueda.</div>':'<div class="recipient">No hay clientes autorizados. Importá contactos y marcá su autorización.</div>');$$(".recipient-check").forEach(c=>c.onchange=()=>{c.checked?selectedRecipients.add(c.value):selectedRecipients.delete(c.value);updateSelected();scheduleDraftSave("send")});updateSelected()}
+function renderRecipientList(){const q=($("#recipient-search").value||"").toLowerCase();const eligible=contacts.filter(c=>c.optIn);authorizedCount=eligible.length;const visible=eligible.filter(c=>(c.name+" "+c.phone+" "+(c.dni||"")).toLowerCase().includes(q));$("#send-recipients").innerHTML=visible.map(c=>`<label class="recipient"><input type="checkbox" class="recipient-check" value="${c.id}"${selectedRecipients.has(c.id)?" checked":""}><span>${esc(c.name||"Sin nombre")}<small>${esc(c.phone)}</small></span></label>`).join("")||(eligible.length?'<div class="recipient">Ningún cliente autorizado coincide con la búsqueda.</div>':'<div class="recipient">No hay clientes autorizados. Importá contactos y marcá su autorización.</div>');$$(".recipient-check").forEach(c=>c.onchange=()=>{c.checked?selectedRecipients.add(c.value):selectedRecipients.delete(c.value);updateSelected();scheduleDraftSave("send")});updateSelected()}
 function updateSelected(){$("#selected-count").textContent=selectedRecipients.size;$("#recipient-summary").textContent="Seleccionados de "+authorizedCount+" autorizados"}
 $("#recipient-search").addEventListener("input",renderRecipientList);
 $("#select-all").onclick=()=>{$$(".recipient-check").forEach(c=>{c.checked=true;selectedRecipients.add(c.value)});updateSelected();scheduleDraftSave("send")};
 $("#select-none").onclick=()=>{selectedRecipients.clear();$$(".recipient-check").forEach(c=>c.checked=false);updateSelected();scheduleDraftSave("send")};
-$("#send-type").onchange=()=>{$("#send-file-wrap").classList.toggle("hidden",$("#send-type").value==="text");$("#send-file").accept=$("#send-type").value==="video"?"video/mp4":"image/*";$("#send-text").dispatchEvent(new Event("input"))};
-$("#send-button").onclick=async()=>{const ids=[...selectedRecipients];if(!ids.length)return toast("Seleccioná al menos un cliente autorizado.");const type=$("#send-type").value;const files=[...$("#send-file").files];if(type!=="text"&&!files.length)return toast("Adjuntá al menos una imagen o video.");if(!confirm(`Vas a enviar a ${ids.length} clientes${files.length>1?" ("+files.length+" archivos cada uno)":""}. ¿Continuar?`))return;const fd=new FormData();fd.append("type",type);fd.append("text",$("#send-text").value);fd.append("ids",JSON.stringify(ids));files.forEach(f=>fd.append("files",f));const b=$("#send-button");const box=$("#send-result");b.disabled=true;b.textContent="Enviando...";try{const start=await request("/api/send",{method:"POST",body:fd});$("#send-file").value="";box.classList.remove("hidden","error");box.textContent=`Procesando 0/${start.total}...`;let done=false,tries=0;while(!done&&tries<1800){tries++;await sleep(1000);let j;try{j=await request("/api/jobs/"+start.jobId)}catch(e){done=true;box.classList.add("error");box.textContent=`Se perdió el seguimiento del envío (${e.message}). Revisá el historial.`;break}if(j.status==="running"){box.textContent=`Procesando ${j.processed}/${j.total} · Enviados: ${j.sent} · Fallidos: ${j.failed}`}else{done=true;if(j.status==="error"){box.classList.add("error");box.textContent=`No se pudo completar el envío: ${j.error||"error desconocido"}`}else{box.textContent=`Proceso finalizado. Enviados: ${j.sent}. Fallidos: ${j.failed}.`}}}if(!done){box.classList.add("error");box.textContent="El envío sigue en curso pero dejé de monitorearlo. Revisá el historial en unos minutos."}toast("Campaña procesada");loadSummary()}catch(e){box.classList.remove("hidden");box.classList.add("error");box.textContent=e.message}finally{b.disabled=false;b.textContent="Enviar promoción"}};
+$("#send-type").onchange=()=>{const isText=$("#send-type").value==="text";$("#send-file-wrap").classList.toggle("hidden",isText);$("#send-file").accept=$("#send-type").value==="video"?"video/mp4":"image/*";if(isText)$("#send-file").value="";$("#send-text").dispatchEvent(new Event("input"))};
+function showJobResult(j){
+  const box=$("#send-result");
+  box.classList.remove("hidden");
+  if(j.status==="error"){
+    box.classList.add("error");
+    box.textContent=`No se pudo completar el envío: ${j.error||"error desconocido"}`;
+  }else{
+    box.classList.remove("error");
+    box.textContent=`Proceso finalizado. Enviados: ${j.sent}. Fallidos: ${j.failed}.`;
+  }
+}
+async function resetSendComposer(){
+  applyingDraft=true;
+  try{
+    const ta=$("#send-text");
+    if(ta){ta.value="";ta.dispatchEvent(new Event("input"))}
+    $("#send-file").value="";
+    selectedRecipients.clear();
+    if(contacts.length)renderRecipientList();else updateSelected();
+    selectedTemplate.send="";
+    fillTemplateSelect("send");
+    await request("/api/drafts/send",{method:"DELETE"});
+    setDraftStatus("send","Sin borrador");
+  }catch(e){
+    // El resultado del envío no debe fallar porque no se pudo limpiar el borrador.
+  }finally{pendingSendKey=null;applyingDraft=false}
+}
+async function monitorJob(jobId,total,estimatedMs=0){
+  if(monitoringJob)return null;
+  monitoringJob=true;
+  activeJob={jobId,total,estimatedMs,last:null};
+  $("#track-job").classList.remove("hidden");
+  const box=$("#send-result");
+  const deadline=Date.now()+Math.max(30*60*1000,Number(estimatedMs||0)+10*60*1000);
+  let delay=1000,errors=0;
+  while(Date.now()<deadline){
+    await sleep(delay);
+    if(!monitoringJob)return null;
+    let j;
+    try{
+      j=await request("/api/jobs/"+encodeURIComponent(jobId));
+      errors=0;delay=1000;
+    }catch(e){
+      errors++;
+      delay=Math.min(delay*2,15000);
+      box.classList.add("error");
+      box.textContent=`No se pudo consultar el estado (${e.message}). Reintentando...`;
+      if(errors>=6){
+        monitoringJob=false;
+        box.textContent="No se pudo confirmar el estado del envío. Usá \"Ver estado del último envío\" para reintentar.";
+        return null;
+      }
+      continue;
+    }
+    activeJob.last=j;
+    if(j.status==="running"){
+      box.classList.remove("error");
+      box.textContent=`Procesando ${j.processed}/${j.total} · Enviados: ${j.sent} · Fallidos: ${j.failed}`;
+      continue;
+    }
+    monitoringJob=false;
+    await resetSendComposer();
+    showJobResult(j);
+    loadSummary();
+    return j;
+  }
+  monitoringJob=false;
+  box.classList.add("error");
+  box.textContent="El envío sigue en curso. Podés seguir consultando con \"Ver estado del último envío\".";
+  return null;
+}
+$("#send-button").onclick=async()=>{
+  const ids=[...selectedRecipients];
+  if(!ids.length)return toast("Seleccioná al menos un cliente autorizado.");
+  const type=$("#send-type").value;
+  const files=type==="text"?[]:[...$("#send-file").files];
+  if(type!=="text"&&!files.length)return toast("Adjuntá al menos una imagen o video.");
+  if(files.length>maxSendFiles)return toast(`No podés adjuntar más de ${maxSendFiles} archivos.`);
+  const messages=ids.length*Math.max(1,files.length);
+  if(!confirm(`Vas a enviar ${messages} mensaje${messages===1?"":"s"} a ${ids.length} cliente${ids.length===1?"":"s"}${files.length>1?" ("+files.length+" archivos por cliente)":""}. ¿Continuar?`))return;
+  const fd=new FormData();
+  fd.append("type",type);
+  fd.append("text",$("#send-text").value);
+  fd.append("ids",JSON.stringify(ids));
+  files.forEach(f=>fd.append("files",f));
+  const b=$("#send-button"),box=$("#send-result");
+  const key=pendingSendKey||(typeof crypto!=="undefined"&&crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random());
+  pendingSendKey=key;
+  b.disabled=true;b.textContent="Enviando...";
+  box.classList.remove("hidden","error");box.textContent="Preparando el envío...";
+  try{
+    const start=await request("/api/send",{method:"POST",body:fd,headers:{"Idempotency-Key":key}});
+    box.textContent=start.reused?`Reanudando envío anterior (${start.total} mensajes)...`:`Procesando 0/${start.total}...`;
+    await monitorJob(start.jobId,start.total,start.estimatedMs);
+  }catch(e){
+    box.classList.remove("hidden");box.classList.add("error");box.textContent=e.message;
+  }finally{b.disabled=false;b.textContent="Enviar promoción"}
+};
+$("#track-job").onclick=async()=>{
+  if(monitoringJob)return toast("El envío ya se está siguiendo.");
+  if(!activeJob)return toast("No hay un envío reciente para consultar.");
+  if(activeJob.last&&activeJob.last.status!=="running")return showJobResult(activeJob.last);
+  $("#send-result").classList.remove("hidden");
+  await monitorJob(activeJob.jobId,activeJob.total,activeJob.estimatedMs);
+};
 $("#status-type").onchange=()=>{$("#status-file-wrap").classList.toggle("hidden",$("#status-type").value==="text");$("#status-file").accept=$("#status-type").value==="video"?"video/mp4":"image/*";$("#status-text").dispatchEvent(new Event("input"))};
 $("#status-button").onclick=async()=>{const type=$("#status-type").value;const fd=new FormData();fd.append("type",type);fd.append("text",$("#status-text").value);if($("#status-file").files[0])fd.append("file",$("#status-file").files[0]);if(!confirm("¿Publicar este contenido en el Estado de WhatsApp del número conectado?"))return;const b=$("#status-button");b.disabled=true;b.textContent="Publicando...";try{await request("/api/status",{method:"POST",body:fd});$("#status-file").value="";$("#status-result").classList.remove("hidden","error");$("#status-result").textContent="Solicitud de publicación enviada a WhatsApp.";toast("Estado enviado")}catch(e){$("#status-result").classList.remove("hidden");$("#status-result").classList.add("error");$("#status-result").textContent=e.message}finally{b.disabled=false;b.textContent="Publicar estado"}};
 async function loadHistory(){try{const h=await request("/api/history");$("#history-body").innerHTML=h.map(x=>`<tr><td data-label="Fecha">${new Date(x.at).toLocaleString()}</td><td data-label="Acción">${x.kind==="status"?"Estado":"Mensaje"} · ${esc(x.type||"")}</td><td data-label="Cliente / resultado">${esc(x.name||x.phone||"Publicación de estado")}</td><td data-label="Estado"><span class="pill ${x.ok?"yes":"no"}">${x.ok?"Procesado":"Error"}</span></td></tr>`).join("")||'<tr><td colspan="4">Todavía no hay actividad.</td></tr>'}catch(e){toast(e.message)}}

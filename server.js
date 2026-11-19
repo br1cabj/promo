@@ -301,6 +301,20 @@ const upload = multer({
 // Suma de tamaños de los archivos subidos, para acotar el total en memoria.
 const totalUploadBytes = (files) => (files || []).reduce((sum, f) => sum + (f.size || f.buffer?.length || 0), 0);
 
+// El mimetype lo declara el navegador, así que también revisamos la firma del
+// archivo. Evita subir un ".png" que en realidad es otro tipo de contenido.
+function imageLooksValid(buf) {
+  if (!buf || buf.length < 12) return false;
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return true; // PNG
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return true; // JPEG
+  const head = buf.toString("ascii", 0, 6);
+  if (head === "GIF87a" || head === "GIF89a") return true; // GIF
+  return buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP";
+}
+function mp4LooksValid(buf) {
+  return Boolean(buf && buf.length >= 12 && buf.toString("ascii", 4, 8) === "ftyp");
+}
+
 let evoAgent = null;
 function evoClient() {
   if (!configured()) throw new Error("Falta configurar Evolution API en el archivo .env");
@@ -331,6 +345,19 @@ function addHistory(entry) {
 // Trabajos de envío en segundo plano (evita requests HTTP de larga duración)
 // ---------------------------------------------------------------------------
 const jobs = new Map();
+// Si se pierde la respuesta HTTP del POST /api/send, un reintento con la misma
+// clave devuelve el job original en vez de crear una segunda campaña.
+const idempotencyJobs = new Map();
+
+// Duración aproximada con los delays configurados. El front la usa para no
+// abandonar el seguimiento antes de que termine una campaña grande.
+function estimatedJobMs(total) {
+  if (total <= 1) return 0;
+  const perMessage = SEND_DELAY_MS + SEND_DELAY_JITTER_MS / 2;
+  const pauses = SEND_BATCH_SIZE ? Math.floor((total - 1) / SEND_BATCH_SIZE) : 0;
+  return Math.round((total - 1) * perMessage + pauses * SEND_BATCH_PAUSE_MS);
+}
+
 function createJob(total) {
   const id = crypto.randomUUID();
   const job = {
@@ -351,8 +378,10 @@ function recordResult(job, entry) {
   }
 }
 setInterval(() => {
-  const cutoff = Date.now() - 3600 * 1000;
+  // Se retiene más tiempo que el seguimiento del front para poder reanudarlo.
+  const cutoff = Date.now() - 6 * 3600 * 1000;
   for (const [id, job] of jobs) if (new Date(job.createdAt).getTime() < cutoff) jobs.delete(id);
+  for (const [key, jobId] of idempotencyJobs) if (!jobs.has(jobId)) idempotencyJobs.delete(key);
 }, 600 * 1000).unref();
 
 // Pausa antes del siguiente mensaje. Devuelve 0 en el último envío. Combina
@@ -437,7 +466,8 @@ app.get("/api/summary", (req, res) => {
     total: counts.total,
     optedIn: counts.optedIn,
     history: counts.history,
-    connectedConfig: configured()
+    connectedConfig: configured(),
+    maxSendFiles: MAX_SEND_FILES
   });
 });
 
@@ -610,15 +640,29 @@ app.post("/api/send", upload.array("files", MAX_SEND_FILES), (req, res) => {
     if (type === "text" && !cleanText) return res.status(400).json({ error: "Escribí un mensaje." });
     const files = req.files || [];
     if (type !== "text" && !files.length) return res.status(400).json({ error: "Adjuntá al menos una imagen o video." });
-    if (totalUploadBytes(files) > MAX_TOTAL_UPLOAD_MB * 1024 * 1024) {
-      return res.status(413).json({ error: `El total de archivos supera el límite de ${MAX_TOTAL_UPLOAD_MB} MB.` });
+
+    // Un reintento con la misma clave no debe duplicar la campaña.
+    const idem = req.get("idempotency-key");
+    if (idem) {
+      const oldId = idempotencyJobs.get(idem);
+      const old = oldId && jobs.get(oldId);
+      if (old) {
+        return res.status(202).json({
+          jobId: old.id, total: old.total, estimatedMs: estimatedJobMs(old.total), reused: true
+        });
+      }
     }
 
     let media = [];
     if (type !== "text") {
+      if (totalUploadBytes(files) > MAX_TOTAL_UPLOAD_MB * 1024 * 1024) {
+        return res.status(413).json({ error: `El total de archivos supera el límite de ${MAX_TOTAL_UPLOAD_MB} MB.` });
+      }
       for (const f of files) {
         if (type === "image" && !f.mimetype.startsWith("image/")) return res.status(400).json({ error: "Todos los archivos deben ser imágenes." });
         if (type === "video" && f.mimetype !== "video/mp4") return res.status(400).json({ error: "Para video, usá archivos MP4." });
+        if (type === "image" && !imageLooksValid(f.buffer)) return res.status(400).json({ error: "Uno de los archivos no es una imagen válida (PNG, JPG, GIF o WebP)." });
+        if (type === "video" && !mp4LooksValid(f.buffer)) return res.status(400).json({ error: "Uno de los videos no tiene formato MP4 válido." });
         // Se codifica una sola vez para todos los destinatarios.
         media.push({ mime: f.mimetype, base64: f.buffer.toString("base64"), fileName: cut(f.originalname, 200) });
       }
@@ -626,7 +670,8 @@ app.post("/api/send", upload.array("files", MAX_SEND_FILES), (req, res) => {
 
     const total = type === "text" ? contacts.length : contacts.length * media.length;
     const job = createJob(total);
-    res.status(202).json({ jobId: job.id, total: job.total });
+    if (idem) idempotencyJobs.set(idem, job.id);
+    res.status(202).json({ jobId: job.id, total: job.total, estimatedMs: estimatedJobMs(total) });
     runSendJob(job, { type, text: cleanText, contacts, media }).catch(() => {});
   } catch (e) { res.status(400).json({ error: evoError(e) }); }
 });
@@ -659,8 +704,8 @@ app.post("/api/status", upload.single("file"), async (req, res) => {
       payload.font = Number.isInteger(font) && font >= 1 && font <= 5 ? font : 1;
     } else {
       const mime = req.file.mimetype;
-      if (type === "image" && !mime.startsWith("image/")) return res.status(400).json({ error: "El archivo no parece ser una imagen." });
-      if (type === "video" && mime !== "video/mp4") return res.status(400).json({ error: "Para estado de video, usá MP4." });
+      if (type === "image" && (!mime.startsWith("image/") || !imageLooksValid(req.file.buffer))) return res.status(400).json({ error: "El archivo no parece ser una imagen válida." });
+      if (type === "video" && (mime !== "video/mp4" || !mp4LooksValid(req.file.buffer))) return res.status(400).json({ error: "Para estado de video, usá MP4 válido." });
       payload.content = `data:${mime};base64,${req.file.buffer.toString("base64")}`;
       payload.caption = text;
     }
@@ -736,7 +781,9 @@ app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     const message = err.code === "LIMIT_FILE_SIZE"
       ? `El archivo supera el límite de ${MAX_UPLOAD_MB} MB.`
-      : "No pude procesar el archivo adjunto.";
+      : err.code === "LIMIT_FILE_COUNT"
+        ? `No podés adjuntar más de ${MAX_SEND_FILES} archivos.`
+        : "No pude procesar el archivo adjunto.";
     return res.status(400).json({ error: message });
   }
   if (err && err.type === "entity.too.large") return res.status(413).json({ error: "El contenido enviado es demasiado grande." });
