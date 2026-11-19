@@ -38,7 +38,12 @@ if (!store.cipherEnabled) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const cut = (value, max) => String(value ?? "").trim().slice(0, max);
-const MAX_NAME = 120, MAX_TEXT = 8000;
+// Límites reales de WhatsApp/Evolution: 4096 para texto y 1024 para pies de
+// imagen/video. Los borradores y plantillas usan el mismo tope en lib/db.js.
+const MAX_NAME = 120, MAX_TEXT = 4096, MAX_CAPTION = 1024;
+// Los resultados se entregan al front en cada poll: acotamos el array para que
+// una campaña grande no serialice decenas de miles de objetos por respuesta.
+const MAX_JOB_RESULTS = 500;
 
 // ---------------------------------------------------------------------------
 // Configuración
@@ -328,9 +333,22 @@ function addHistory(entry) {
 const jobs = new Map();
 function createJob(total) {
   const id = crypto.randomUUID();
-  const job = { id, status: "running", total, processed: 0, sent: 0, failed: 0, results: [], createdAt: new Date().toISOString() };
+  const job = {
+    id, status: "running", total, processed: 0, sent: 0, failed: 0,
+    results: [], truncated: false, createdAt: new Date().toISOString()
+  };
   jobs.set(id, job);
   return job;
+}
+
+// Conservamos solo los últimos resultados: el frente solo necesita contadores
+// de progreso, y devolver todo el array en cada poll era costoso.
+function recordResult(job, entry) {
+  job.results.push(entry);
+  if (job.results.length > MAX_JOB_RESULTS) {
+    job.results.shift();
+    job.truncated = true;
+  }
 }
 setInterval(() => {
   const cutoff = Date.now() - 3600 * 1000;
@@ -348,6 +366,17 @@ function nextSendDelay(index, total) {
 }
 
 async function runSendJob(job, { type, text, contacts, media }) {
+  // Un resultado por cliente: en campañas con varias imágenes se agrupan los
+  // envíos del mismo destinatario para no repetir filas en el historial.
+  const outcomes = new Map();
+  const mark = (c, ok, error) => {
+    const o = outcomes.get(c.id) || { ok: true, errors: [] };
+    if (!ok) {
+      o.ok = false;
+      if (error) o.errors.push(String(error));
+    }
+    outcomes.set(c.id, o);
+  };
   try {
     const api = evoClient();
     // Una unidad por cada mensaje a enviar: con texto es una por cliente; con
@@ -370,12 +399,13 @@ async function runSendJob(job, { type, text, contacts, media }) {
         }
         await api.post(endpoint, payload);
         job.sent++;
-        job.results.push({ name: c.name, phone: c.phone, ok: true });
-        addHistory({ kind: "chat", type, name: c.name, phone: c.phone, ok: true });
+        recordResult(job, { name: c.name, phone: c.phone, ok: true });
+        mark(c, true);
       } catch (err) {
+        const error = evoError(err);
         job.failed++;
-        job.results.push({ name: c.name, phone: c.phone, ok: false, error: err.response?.data?.message || err.message });
-        addHistory({ kind: "chat", type, name: c.name, phone: c.phone, ok: false, error: err.message });
+        recordResult(job, { name: c.name, phone: c.phone, ok: false, error });
+        mark(c, false, error);
       }
       job.processed = i + 1;
       const wait = nextSendDelay(i, units.length);
@@ -384,9 +414,18 @@ async function runSendJob(job, { type, text, contacts, media }) {
     job.status = "done";
   } catch (e) {
     job.status = "error";
-    job.error = e.response?.data?.message || e.message;
+    job.error = evoError(e);
+  } finally {
+    for (const c of contacts) {
+      const o = outcomes.get(c.id);
+      if (!o) continue; // no se intentó enviar: no registramos actividad falsa
+      addHistory({
+        kind: "chat", type, name: c.name, phone: c.phone, ok: o.ok,
+        error: o.errors.length ? o.errors.join(" | ") : undefined
+      });
+    }
+    job.finishedAt = new Date().toISOString();
   }
-  job.finishedAt = new Date().toISOString();
 }
 
 // ---------------------------------------------------------------------------
@@ -462,8 +501,20 @@ app.post("/api/import", upload.single("file"), (req, res) => {
 function evoError(e) {
   const d = e?.response?.data;
   const msg = d?.response?.message || d?.error?.message || d?.message || d?.error || e?.message;
-  if (Array.isArray(msg)) return msg.join(" ");
+  if (Array.isArray(msg)) return msg.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ");
+  if (msg && typeof msg === "object") return JSON.stringify(msg);
   return typeof msg === "string" && msg ? msg : "Error al comunicarse con Evolution API.";
+}
+
+// Valida el texto antes de mandarlo: los límites de WhatsApp son 4096 para
+// mensajes de texto y 1024 para pies de imagen/video.
+function messageText(value, type) {
+  const max = type === "text" ? MAX_TEXT : MAX_CAPTION;
+  const raw = String(value ?? "").trim();
+  if (raw.length > max) {
+    return { error: `El texto supera el límite de ${max} caracteres para ${type === "text" ? "mensajes de texto" : "imágenes y videos"}.` };
+  }
+  return { text: raw.slice(0, max) };
 }
 
 app.get("/api/connection", async (req, res) => {
@@ -537,20 +588,25 @@ app.post("/api/connect", async (req, res) => {
     const qr = data.base64 || data.qrcode?.base64 || data.qrcode || null;
     const pairingCode = data.pairingCode || data.qrcode?.pairingCode || null;
     res.json({ ok: true, qr, pairingCode, data });
-  } catch (e) { res.status(502).json({ error: e.response?.data?.message || e.message }); }
+  } catch (e) { res.status(502).json({ error: evoError(e) }); }
 });
 
 app.post("/api/send", upload.array("files", MAX_SEND_FILES), (req, res) => {
   try {
     if (!configured()) return res.status(400).json({ error: "Falta configurar Evolution API en el archivo .env" });
     const { type, text, ids } = req.body;
+    // El front envía ids como string JSON dentro de FormData, pero también se
+    // acepta un array (clientes JSON) para que el endpoint sea consistente.
     let selectedIds;
-    try { selectedIds = JSON.parse(ids || "[]"); } catch { selectedIds = []; }
+    try { selectedIds = Array.isArray(ids) ? ids : JSON.parse(ids || "[]"); } catch { selectedIds = []; }
     if (!Array.isArray(selectedIds)) selectedIds = [];
+    selectedIds = selectedIds.filter((x) => typeof x === "string" && x);
     const contacts = store.listContacts().filter(c => selectedIds.includes(c.id) && c.optIn);
     if (!contacts.length) return res.status(400).json({ error: "No hay clientes seleccionados con autorización para recibir promociones." });
     if (!["text", "image", "video"].includes(type)) return res.status(400).json({ error: "Tipo de mensaje no válido." });
-    const cleanText = cut(text, MAX_TEXT);
+    const parsedText = messageText(text, type);
+    if (parsedText.error) return res.status(400).json({ error: parsedText.error });
+    const cleanText = parsedText.text;
     if (type === "text" && !cleanText) return res.status(400).json({ error: "Escribí un mensaje." });
     const files = req.files || [];
     if (type !== "text" && !files.length) return res.status(400).json({ error: "Adjuntá al menos una imagen o video." });
@@ -572,7 +628,7 @@ app.post("/api/send", upload.array("files", MAX_SEND_FILES), (req, res) => {
     const job = createJob(total);
     res.status(202).json({ jobId: job.id, total: job.total });
     runSendJob(job, { type, text: cleanText, contacts, media }).catch(() => {});
-  } catch (e) { res.status(400).json({ error: e.response?.data?.message || e.message }); }
+  } catch (e) { res.status(400).json({ error: evoError(e) }); }
 });
 
 app.get("/api/jobs/:id", (req, res) => {
@@ -580,7 +636,8 @@ app.get("/api/jobs/:id", (req, res) => {
   if (!job) return res.status(404).json({ error: "Trabajo no encontrado." });
   res.json({
     id: job.id, status: job.status, total: job.total, processed: job.processed,
-    sent: job.sent, failed: job.failed, results: job.results, error: job.error
+    sent: job.sent, failed: job.failed, results: job.results,
+    truncated: job.truncated, error: job.error
   });
 });
 
@@ -588,15 +645,18 @@ app.post("/api/status", upload.single("file"), async (req, res) => {
   const type = req.body.type;
   try {
     if (!configured()) return res.status(400).json({ error: "Falta configurar Evolution API en el archivo .env" });
-    const text = cut(req.body.text, MAX_TEXT);
     if (!["text", "image", "video"].includes(type)) return res.status(400).json({ error: "Tipo de estado no válido." });
+    const parsedText = messageText(req.body.text, type);
+    if (parsedText.error) return res.status(400).json({ error: parsedText.error });
+    const text = parsedText.text;
     if (type === "text" && !text) return res.status(400).json({ error: "Escribí el texto del estado." });
     if (type !== "text" && !req.file) return res.status(400).json({ error: "Adjuntá una imagen o video." });
     const payload = { type, allContacts: true };
     if (type === "text") {
       payload.content = text;
       payload.backgroundColor = cut(req.body.backgroundColor || "#128C7E", 32) || "#128C7E";
-      payload.font = Number(req.body.font || 1);
+      const font = Number(req.body.font);
+      payload.font = Number.isInteger(font) && font >= 1 && font <= 5 ? font : 1;
     } else {
       const mime = req.file.mimetype;
       if (type === "image" && !mime.startsWith("image/")) return res.status(400).json({ error: "El archivo no parece ser una imagen." });
@@ -608,8 +668,8 @@ app.post("/api/status", upload.single("file"), async (req, res) => {
     addHistory({ kind: "status", type, ok: true, response: r.data });
     res.json({ ok: true, data: r.data });
   } catch (e) {
-    addHistory({ kind: "status", type, ok: false, error: e.message });
-    res.status(502).json({ error: e.response?.data?.message || e.message });
+    addHistory({ kind: "status", type, ok: false, error: evoError(e) });
+    res.status(502).json({ error: evoError(e) });
   }
 });
 

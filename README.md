@@ -180,7 +180,7 @@ Además del borrador, podés guardar **plantillas**: mensajes ya escritos y reut
 
 ## Experiencia de uso
 
-- **Vista previa en vivo** y **contador de caracteres** en los cuadros de mensaje y estado (avisa si superás 1024, el límite de las descripciones de imagen/video).
+- **Vista previa en vivo** y **contador de caracteres** en los cuadros de mensaje y estado (avisa si superás 4096 en texto o 1024 en descripciones de imagen/video; el servidor también valida ambos límites).
 - **Buscador de destinatarios** en "Enviar mensaje": filtrá por nombre o teléfono y usá "Seleccionar visibles". La selección se mantiene aunque cambies el filtro.
 - **Resumen de selección**: muestra cuántos elegiste sobre el total de autorizados.
 - **Prevención de doble envío**: los botones de guardar, importar y editar se deshabilitan mientras la operación está en curso.

@@ -39,8 +39,8 @@
     <section id="page-contacts" class="page hidden">
       <div class="section-head"><div><div class="eyebrow">AGENDA</div><h2>Clientes</h2><p>Importá un CSV o agregá contactos manualmente.</p></div></div>
       <div class="two-col">
-        <div class="card"><h3>Agregar cliente</h3><form id="add-contact"><label>Nombre<input name="name" placeholder="Nombre y apellido"></label><label>Teléfono con código de país<input name="phone" placeholder="5493511234567" required></label><label>DNI (opcional)<input name="dni" placeholder="DNI"></label><label class="check"><input type="checkbox" name="optIn"> Tiene autorización para recibir promociones</label><button class="primary">Guardar cliente</button></form></div>
-        <div class="card"><h3>Importar clientes</h3><p class="muted">Subí un archivo CSV con encabezados: nombre, telefono, dni, optin.</p><form id="import-form"><label>Archivo CSV<input type="file" name="file" accept=".csv,text/csv" required></label><button class="secondary">Importar CSV</button></form><div class="hint">Los contactos importados sin una columna <code>optin</code> afirmativa quedan deshabilitados para promociones.</div><a href="/ejemplo-clientes.csv" download class="text-link">Descargar CSV de ejemplo</a></div>
+        <div class="card"><h3>Agregar cliente</h3><form id="add-contact"><label>Nombre<input name="name" placeholder="Nombre y apellido"></label><label>Teléfono con código de país<input name="phone" placeholder="5493511234567" required></label><label>DNI (opcional)<input name="dni" placeholder="DNI"></label><label class="check"><input type="checkbox" name="optIn"> Tiene autorización para recibir promociones</label><button type="submit" class="primary">Guardar cliente</button></form></div>
+        <div class="card"><h3>Importar clientes</h3><p class="muted">Subí un archivo CSV con encabezados: nombre, telefono, dni, optin.</p><form id="import-form"><label>Archivo CSV<input type="file" name="file" accept=".csv,text/csv" required></label><button type="submit" class="secondary">Importar CSV</button></form><div class="hint">Los contactos importados sin una columna <code>optin</code> afirmativa quedan deshabilitados para promociones.</div><a href="/ejemplo-clientes.csv" download class="text-link">Descargar CSV de ejemplo</a></div>
       </div>
       <div class="card table-card"><div class="table-title"><h3>Lista de clientes</h3><div class="table-tools"><input id="contact-search" placeholder="Buscar nombre, teléfono o DNI..."><button id="export-contacts" class="secondary" type="button">Exportar CSV</button></div></div><div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Teléfono</th><th>DNI</th><th>Autorizado</th><th>Acciones</th></tr></thead><tbody id="contacts-body"></tbody></table></div></div>
     </section>
@@ -83,7 +83,7 @@
           <h4>Opción 2 · Código QR (necesitás otra pantalla)</h4>
           <p class="muted">Abrí este panel en una computadora u otro dispositivo y escaneá el QR con el WhatsApp del teléfono.</p>
           <button id="connect-button" class="secondary" type="button">Mostrar código QR</button>
-          <div id="qr-box" class="qr-box hidden"><img id="qr-image" alt="Código QR de WhatsApp"><p>En WhatsApp, abrí Dispositivos vinculados y escaneá este código.</p><a id="qr-download" class="text-link" download="whatsapp-qr.png">Descargar QR</a></div>
+          <div id="qr-box" class="qr-box hidden"><img id="qr-image" alt="Código QR de WhatsApp"><p>En WhatsApp, abrí Dispositivos vinculados y escaneá este código.</p><a id="qr-download" class="text-link" download="whatsapp-qr.png" aria-disabled="true" tabindex="-1">Descargar QR</a></div>
         </div>
         <div class="hint">La URL, clave API y nombre de instancia se configuran en el archivo .env del servidor. No compartas esos datos.</div>
       </div>

@@ -38,6 +38,8 @@ services:
       EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:?definí EVOLUTION_API_KEY en Coolify}
       EVOLUTION_INSTANCE: ${EVOLUTION_INSTANCE:-promociones}
       TRUST_PROXY: "true"
+      # Solo si el proxy no informa X-Forwarded-Host y aparece "Origen no permitido".
+      PUBLIC_URL: ${PUBLIC_URL:-}
       SESSION_HOURS: ${SESSION_HOURS:-12}
       # Límites pensados para un VPS chico.
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
