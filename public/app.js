@@ -45,10 +45,43 @@ function toast(msg,action){const el=$("#toast");el.innerHTML="";const span=docum
 async function request(url, options={}){const r=await fetch(url,options);let data={};try{data=await r.json()}catch{}if(r.status===401){window.location.href="/login";throw new Error("Sesión expirada")}if(!r.ok)throw new Error(data.error||"Ocurrió un error");return data}
 // Busca el botón que dispara el submit aunque el HTML no lleve type="submit".
 function submitButton(form){return form.querySelector('button[type="submit"]')||form.querySelector('button:not([type])')||form.querySelector('button')}
-function showPage(name){$$(".page").forEach(p=>p.classList.add("hidden"));$("#page-"+name).classList.remove("hidden");$$(".nav").forEach(b=>{const active=b.dataset.page===name;b.classList.toggle("active",active);if(active)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});$("#page-title").textContent=({home:"Inicio",contacts:"Clientes",send:"Enviar mensaje",status:"Estados",history:"Historial",connection:"WhatsApp"})[name];if(name==="contacts")refreshContacts();if(name==="send")renderRecipients();if(name==="history")loadHistory();if(name==="connection")loadConnection();else stopConnectionWatch()}
+function showPage(name){
+  const drawerWasOpen=$(".sidebar").classList.contains("open");
+  closeNav();
+  $$(".page").forEach(p=>p.classList.add("hidden"));
+  $("#page-"+name).classList.remove("hidden");
+  $$(".nav").forEach(b=>{const active=b.dataset.page===name;b.classList.toggle("active",active);if(active)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});
+  $("#page-title").textContent=({home:"Inicio",contacts:"Clientes",send:"Enviar mensaje",status:"Estados",history:"Historial",connection:"WhatsApp"})[name];
+  window.scrollTo(0,0);
+  if(drawerWasOpen){const h=$("#page-title");if(h){h.setAttribute("tabindex","-1");h.focus({preventScroll:true})}}
+  if(name==="contacts")refreshContacts();
+  if(name==="send")renderRecipients();
+  if(name==="history")loadHistory();
+  if(name==="connection")loadConnection();else stopConnectionWatch();
+}
 $$(".nav").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));
 // Incluye las acciones rápidas y el chip "Ver WhatsApp" de Enviar.
 $$("[data-go]").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.go)));
+// Navegación móvil: cajón lateral en vez de barra inferior.
+function openNav(){
+  const side=$(".sidebar"),overlay=$("#nav-overlay"),btn=$("#menu-button");
+  if(!side||side.classList.contains("open"))return;
+  side.classList.add("open");overlay.classList.add("open");
+  btn.setAttribute("aria-expanded","true");btn.setAttribute("aria-label","Cerrar menú");
+  document.body.classList.add("nav-open");
+  const first=side.querySelector(".nav");if(first)first.focus();
+}
+function closeNav(restoreFocus=false){
+  const side=$(".sidebar"),overlay=$("#nav-overlay"),btn=$("#menu-button");
+  if(!side||!side.classList.contains("open"))return;
+  side.classList.remove("open");overlay.classList.remove("open");
+  btn.setAttribute("aria-expanded","false");btn.setAttribute("aria-label","Abrir menú");
+  document.body.classList.remove("nav-open");
+  if(restoreFocus)btn.focus();
+}
+$("#menu-button").onclick=()=>{if($(".sidebar").classList.contains("open"))closeNav(true);else openNav()};
+$("#sidebar-close").onclick=()=>closeNav(true);
+$("#nav-overlay").onclick=()=>closeNav(true);
 async function loadSummary(){try{const s=await request("/api/summary");$("#stat-total").textContent=s.total;$("#stat-optin").textContent=s.optedIn;$("#stat-history").textContent=s.history;if(Number(s.maxSendFiles)>0)maxSendFiles=Number(s.maxSendFiles);if(Number(s.linkTtlMs)>0)linkTtlMs=Number(s.linkTtlMs);sendConfig={sendDelayMs:Number(s.sendDelayMs)||1500,sendDelayJitterMs:Number(s.sendDelayJitterMs)||0,sendBatchSize:Number(s.sendBatchSize)||0,sendBatchPauseMs:Number(s.sendBatchPauseMs)||0};updatePaceHint()}catch(e){toast(e.message)}}
 // Mostrar el ritmo real evita que una campaña larga parezca colgada.
 function updatePaceHint(){
@@ -96,7 +129,11 @@ function askConfirm(message,{title="Confirmar acción",acceptLabel="Confirmar",d
   const accept=$("#confirm-accept");
   accept.textContent=acceptLabel;
   accept.classList.toggle("danger",!!danger);
-  focusBeforeConfirm=document.activeElement;
+  const active=document.activeElement;
+  // En celular, cerrar el teclado antes de mostrar la confirmación.
+  const smallScreen=window.matchMedia("(max-width:650px)").matches;
+  if(smallScreen&&active&&typeof active.blur==="function")active.blur();
+  focusBeforeConfirm=smallScreen?null:active;
   modal.classList.remove("hidden");
   accept.focus();
   return new Promise(resolve=>{confirmResolver=resolve});
@@ -117,8 +154,10 @@ function trapModalFocus(ev){
   if(ev.key!=="Tab")return;
   const confirm=$("#confirm-modal"),edit=$("#edit-modal");
   const modal=!confirm.classList.contains("hidden")?confirm:!edit.classList.contains("hidden")?edit:null;
-  if(!modal)return;
-  const items=[...modal.querySelectorAll("button, input, select, textarea, a[href]")].filter(el=>!el.disabled&&el.offsetParent!==null);
+  const side=$(".sidebar");
+  const container=modal||(side&&side.classList.contains("open")?side:null);
+  if(!container)return;
+  const items=[...container.querySelectorAll("button, input, select, textarea, a[href]")].filter(el=>!el.disabled&&el.offsetParent!==null);
   if(!items.length)return;
   const first=items[0],last=items[items.length-1];
   if(ev.shiftKey&&document.activeElement===first){ev.preventDefault();last.focus()}
@@ -145,8 +184,13 @@ const EMOJI_GROUPS=[{name:"Caras",items:"😀 😃 😄 😁 😆 😅 😂 🙂
 function insertAtCursor(ta,text){const value=ta.value,start=ta.selectionStart,end=ta.selectionEnd;ta.value=value.slice(0,start)+text+value.slice(end);const pos=start+text.length;ta.setSelectionRange(pos,pos);ta.focus()}
 function closeEmojiPanels(){$$(".emoji-panel").forEach(p=>p.classList.add("hidden"))}
 function attachFormatting(){$$(".format-toolbar").forEach(tb=>{const ta=document.getElementById(tb.dataset.formatTarget);if(!ta)return;const preview=document.querySelector('[data-preview-for="'+tb.dataset.formatTarget+'"]');const counter=document.querySelector('[data-count-for="'+tb.dataset.formatTarget+'"]');const typeSel=document.getElementById(tb.dataset.formatTarget==="send-text"?"send-type":"status-type");const update=()=>{if(preview)preview.innerHTML=ta.value.trim()?renderWhatsApp(ta.value):'<span class="muted">La vista previa aparecerá acá a medida que escribas.</span>';if(counter){const n=ta.value.length;const isText=!!(typeSel&&typeSel.value==="text");const max=isText?MAX_TEXT:MAX_CAPTION;counter.textContent=n+" / "+max+" caracteres"+(n>max?" · supera el límite para "+(isText?"mensajes de texto":"imágenes y videos"):"");counter.classList.toggle("warn",n>max)}};tb.querySelectorAll("button[data-fmt]").forEach(btn=>{btn.setAttribute("aria-label",btn.title||btn.textContent);btn.onclick=()=>{applyFormat(ta,btn.dataset.fmt);ta.dispatchEvent(new Event("input"));update()}});const wrap=document.createElement("span");wrap.className="emoji-wrap";const ebtn=document.createElement("button");ebtn.type="button";ebtn.className="emoji-btn";ebtn.title="Insertar emoji";ebtn.setAttribute("aria-label","Insertar emoji");ebtn.textContent="😀";const panel=document.createElement("div");panel.className="emoji-panel hidden";EMOJI_GROUPS.forEach(g=>{const t=document.createElement("div");t.className="emoji-group-title";t.textContent=g.name;panel.appendChild(t);const grid=document.createElement("div");grid.className="emoji-grid";g.items.forEach(e=>{const b=document.createElement("button");b.type="button";b.className="emoji-item";b.textContent=e;b.setAttribute("aria-label","Emoji "+e);b.onclick=()=>{insertAtCursor(ta,e);ta.dispatchEvent(new Event("input"));update();if(window.matchMedia("(max-width:650px)").matches)closeEmojiPanels()};grid.appendChild(b)});panel.appendChild(grid)});ebtn.onclick=ev=>{ev.stopPropagation();const open=!panel.classList.contains("hidden");closeEmojiPanels();if(!open)panel.classList.remove("hidden")};document.addEventListener("click",ev=>{if(!wrap.contains(ev.target))panel.classList.add("hidden")});wrap.appendChild(ebtn);wrap.appendChild(panel);tb.appendChild(wrap);ta.addEventListener("input",update);update()})}
-document.addEventListener("keydown",ev=>{if(ev.key==="Escape"){closeEmojiPanels();closeEdit();closeConfirm(false)}trapModalFocus(ev)});
+document.addEventListener("keydown",ev=>{if(ev.key==="Escape"){closeEmojiPanels();closeEdit();closeConfirm(false);closeNav(true)}trapModalFocus(ev)});
 attachFormatting();
+// El toolbar de formato se colapsa en celular y se abre en pantallas grandes.
+const mobileLayout=window.matchMedia("(max-width:650px)");
+function syncFormatDetails(){$$(".format-details").forEach(d=>{d.open=!mobileLayout.matches})}
+syncFormatDetails();
+mobileLayout.addEventListener("change",syncFormatDetails);
 // --- Borradores de redacción (se guardan en el servidor) --------------------
 // El borrador vive en el servidor (SQLite), así está disponible desde la PC y
 // el celular. Guardamos texto, tipo y destinatarios; nunca imágenes ni videos.
@@ -364,6 +408,14 @@ $("#status-button").onclick=async()=>{
 };
 function historyKind(x){return x.kind==="chat"?"message":x.kind||"message"}
 async function loadHistory(){try{historyRows=await request("/api/history");renderHistory()}catch(e){toast(e.message)}}
+// En celular mostramos día/hora cortos; el valor completo sigue disponible en el tooltip y para lectores de pantalla.
+function historyDate(at){
+  const d=new Date(at),valid=!Number.isNaN(d.getTime());
+  const iso=valid?d.toISOString():String(at??"");
+  const full=valid?d.toLocaleString():iso;
+  const short=valid?d.toLocaleString(undefined,{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):iso;
+  return `<time class="history-date-full" datetime="${esc(iso)}" title="${esc(full)}">${esc(full)}</time><time class="history-date-short" datetime="${esc(iso)}" title="${esc(full)}">${esc(short)}</time>`;
+}
 function renderHistory(){
   const q=($("#history-search").value||"").toLowerCase().trim();
   const kind=$("#history-kind").value,result=$("#history-result").value;
@@ -376,7 +428,7 @@ function renderHistory(){
     const label=k==="message"?"Mensaje":k==="status"?"Estado":"Conexión";
     return [label,x.type,x.name,x.phone,x.error,new Date(x.at).toLocaleString()].join(" ").toLowerCase().includes(q);
   });
-  $("#history-body").innerHTML=rows.map(x=>`<tr><td data-label="Fecha">${new Date(x.at).toLocaleString()}</td><td data-label="Acción">${x.kind==="status"?"Estado":x.kind==="connection"?"Conexión":"Mensaje"} · ${esc(x.type||"")}</td><td data-label="Cliente / resultado">${esc(x.name||x.phone||"Publicación de estado")}</td><td data-label="Estado"><span class="pill ${x.ok?"yes":"no"}">${x.ok?"Procesado":"Error"}</span></td></tr>`).join("")||(historyRows.length?'<tr><td colspan="4">Ningún registro coincide con los filtros.</td></tr>':'<tr><td colspan="4">Todavía no hay actividad.</td></tr>');
+  $("#history-body").innerHTML=rows.map(x=>`<tr><td data-label="Fecha">${historyDate(x.at)}</td><td data-label="Acción">${x.kind==="status"?"Estado":x.kind==="connection"?"Conexión":"Mensaje"} · ${esc(x.type||"")}</td><td data-label="Cliente / resultado">${esc(x.name||x.phone||"Publicación de estado")}</td><td data-label="Estado"><span class="pill ${x.ok?"yes":"no"}">${x.ok?"Procesado":"Error"}</span></td></tr>`).join("")||(historyRows.length?'<tr><td colspan="4">Ningún registro coincide con los filtros.</td></tr>':'<tr><td colspan="4">Todavía no hay actividad.</td></tr>');
 }
 $("#history-search").addEventListener("input",renderHistory);
 $("#history-kind").addEventListener("change",renderHistory);
