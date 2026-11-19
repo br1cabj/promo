@@ -10,15 +10,20 @@ let maxSendFiles = 10;
 let activeJob = null;          // último job enviado, para poder reanudar el seguimiento
 let monitoringJob = false;
 let pendingSendKey = null;     // idempotencia: reutilizar si se pierde la respuesta
+let linkTtlMs = 5 * 60 * 1000; // lo ajusta /api/summary
+let connectionWatch = null;
+let connectionPollTick = 0;
+let linkKind = null;           // "qr" | "pairing"
+let linkExpiresAt = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function toast(msg,action){const el=$("#toast");el.innerHTML="";const span=document.createElement("span");span.textContent=msg;el.appendChild(span);if(action){const btn=document.createElement("button");btn.type="button";btn.className="toast-action";btn.textContent=action.label;btn.onclick=()=>{clearTimeout(toastTimer);el.classList.remove("show");action.onClick()};el.appendChild(btn)}el.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove("show"),action?7000:2800)}
 async function request(url, options={}){const r=await fetch(url,options);let data={};try{data=await r.json()}catch{}if(r.status===401){window.location.href="/login";throw new Error("Sesión expirada")}if(!r.ok)throw new Error(data.error||"Ocurrió un error");return data}
 // Busca el botón que dispara el submit aunque el HTML no lleve type="submit".
 function submitButton(form){return form.querySelector('button[type="submit"]')||form.querySelector('button:not([type])')||form.querySelector('button')}
-function showPage(name){$$(".page").forEach(p=>p.classList.add("hidden"));$("#page-"+name).classList.remove("hidden");$$(".nav").forEach(b=>b.classList.toggle("active",b.dataset.page===name));$("#page-title").textContent=({home:"Inicio",contacts:"Clientes",send:"Enviar mensaje",status:"Estados",history:"Historial",connection:"WhatsApp"})[name];if(name==="contacts")refreshContacts();if(name==="send")renderRecipients();if(name==="history")loadHistory();if(name==="connection")loadConnection()}
+function showPage(name){$$(".page").forEach(p=>p.classList.add("hidden"));$("#page-"+name).classList.remove("hidden");$$(".nav").forEach(b=>b.classList.toggle("active",b.dataset.page===name));$("#page-title").textContent=({home:"Inicio",contacts:"Clientes",send:"Enviar mensaje",status:"Estados",history:"Historial",connection:"WhatsApp"})[name];if(name==="contacts")refreshContacts();if(name==="send")renderRecipients();if(name==="history")loadHistory();if(name==="connection")loadConnection();else stopConnectionWatch()}
 $$(".nav").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));
 $$(".quick").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.go)));
-async function loadSummary(){try{const s=await request("/api/summary");$("#stat-total").textContent=s.total;$("#stat-optin").textContent=s.optedIn;$("#stat-history").textContent=s.history;if(Number(s.maxSendFiles)>0)maxSendFiles=Number(s.maxSendFiles)}catch(e){toast(e.message)}}
+async function loadSummary(){try{const s=await request("/api/summary");$("#stat-total").textContent=s.total;$("#stat-optin").textContent=s.optedIn;$("#stat-history").textContent=s.history;if(Number(s.maxSendFiles)>0)maxSendFiles=Number(s.maxSendFiles);if(Number(s.linkTtlMs)>0)linkTtlMs=Number(s.linkTtlMs)}catch(e){toast(e.message)}}
 async function loadContacts(){contacts=await request("/api/contacts");pruneSelected();return contacts}
 // Quita de la selección los contactos que ya no existen o perdieron la
 // autorización: así el contador y el confirm coinciden con lo que envía el API.
@@ -199,12 +204,96 @@ $("#track-job").onclick=async()=>{
 };
 $("#status-type").onchange=()=>{$("#status-file-wrap").classList.toggle("hidden",$("#status-type").value==="text");$("#status-file").accept=$("#status-type").value==="video"?"video/mp4":"image/*";$("#status-text").dispatchEvent(new Event("input"))};
 $("#status-button").onclick=async()=>{const type=$("#status-type").value;const fd=new FormData();fd.append("type",type);fd.append("text",$("#status-text").value);if($("#status-file").files[0])fd.append("file",$("#status-file").files[0]);if(!confirm("¿Publicar este contenido en el Estado de WhatsApp del número conectado?"))return;const b=$("#status-button");b.disabled=true;b.textContent="Publicando...";try{await request("/api/status",{method:"POST",body:fd});$("#status-file").value="";$("#status-result").classList.remove("hidden","error");$("#status-result").textContent="Solicitud de publicación enviada a WhatsApp.";toast("Estado enviado")}catch(e){$("#status-result").classList.remove("hidden");$("#status-result").classList.add("error");$("#status-result").textContent=e.message}finally{b.disabled=false;b.textContent="Publicar estado"}};
-async function loadHistory(){try{const h=await request("/api/history");$("#history-body").innerHTML=h.map(x=>`<tr><td data-label="Fecha">${new Date(x.at).toLocaleString()}</td><td data-label="Acción">${x.kind==="status"?"Estado":"Mensaje"} · ${esc(x.type||"")}</td><td data-label="Cliente / resultado">${esc(x.name||x.phone||"Publicación de estado")}</td><td data-label="Estado"><span class="pill ${x.ok?"yes":"no"}">${x.ok?"Procesado":"Error"}</span></td></tr>`).join("")||'<tr><td colspan="4">Todavía no hay actividad.</td></tr>'}catch(e){toast(e.message)}}
+async function loadHistory(){try{const h=await request("/api/history");$("#history-body").innerHTML=h.map(x=>`<tr><td data-label="Fecha">${new Date(x.at).toLocaleString()}</td><td data-label="Acción">${x.kind==="status"?"Estado":x.kind==="connection"?"Conexión":"Mensaje"} · ${esc(x.type||"")}</td><td data-label="Cliente / resultado">${esc(x.name||x.phone||"Publicación de estado")}</td><td data-label="Estado"><span class="pill ${x.ok?"yes":"no"}">${x.ok?"Procesado":"Error"}</span></td></tr>`).join("")||'<tr><td colspan="4">Todavía no hay actividad.</td></tr>'}catch(e){toast(e.message)}}
 function formatOwner(owner){const d=String(owner||"").replace(/\D/g,"");return d?"+"+d:""}
-async function loadConnection(){try{const r=await request("/api/connection");const connected=!!r.connected;$("#connection-dot").classList.toggle("ok",connected);$("#connection-title").textContent=connected?"Conectado a WhatsApp":"WhatsApp sin conexión";const account=$("#connection-account");if(connected&&(r.owner||r.profileName)){$("#connection-name").textContent=r.profileName||"Cuenta de WhatsApp";$("#connection-number").textContent=formatOwner(r.owner);account.classList.remove("hidden")}else{account.classList.add("hidden")}$("#connection-detail").textContent=r.error||(connected?"La sesión está activa y lista para enviar.":"Vinculá un número para empezar a enviar.");$("#disconnect-button").classList.toggle("hidden",!connected)}catch(e){$("#connection-title").textContent="No se pudo consultar";$("#connection-detail").textContent=e.message;$("#connection-account").classList.add("hidden");$("#disconnect-button").classList.add("hidden")}}
-$("#refresh-connection").onclick=loadConnection;
-$("#disconnect-button").onclick=async()=>{if(!confirm("¿Desvincular este número de WhatsApp? Vas a tener que volver a vincularlo para enviar mensajes."))return;const b=$("#disconnect-button");b.disabled=true;b.textContent="Desvinculando...";try{await request("/api/disconnect",{method:"POST"});toast("Número desvinculado");$("#qr-box").classList.add("hidden");$("#pairing-box").classList.add("hidden");const dl=$("#qr-download");if(dl){dl.removeAttribute("href");dl.setAttribute("aria-disabled","true");dl.setAttribute("tabindex","-1")}await loadConnection()}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent="Desvincular"}};
-$("#connect-button").onclick=async()=>{try{const r=await request("/api/connect",{method:"POST"});let qr=r.qr;if(qr&&typeof qr==="string"){if(!qr.startsWith("data:image"))qr="data:image/png;base64,"+qr;$("#qr-image").src=qr;const dl=$("#qr-download");if(dl){dl.href=qr;dl.removeAttribute("aria-disabled");dl.removeAttribute("tabindex")}$("#qr-box").classList.remove("hidden")}else{toast("Evolution API no devolvió un QR. Revisá la instancia y su estado.")}}catch(e){toast(e.message)}};
+function hideLinkBoxes(){
+  const qr=$("#qr-box"),pair=$("#pairing-box");
+  if(qr)qr.classList.add("hidden");
+  if(pair)pair.classList.add("hidden");
+  const img=$("#qr-image");if(img)img.removeAttribute("src");
+  const dl=$("#qr-download");
+  if(dl){dl.removeAttribute("href");dl.setAttribute("aria-disabled","true");dl.setAttribute("tabindex","-1");dl.download="whatsapp-qr.png"}
+  const qe=$("#qr-expiry");if(qe)qe.textContent="";
+  const pe=$("#pairing-expiry");if(pe)pe.textContent="El código vence en pocos minutos.";
+  linkKind=null;linkExpiresAt=0;
+}
+function stopConnectionWatch(){if(connectionWatch){clearInterval(connectionWatch);connectionWatch=null}connectionPollTick=0}
+function updateLinkCountdown(){
+  if(!linkKind||!linkExpiresAt)return;
+  const left=linkExpiresAt-Date.now();
+  if(left<=0){
+    const was=linkKind;
+    hideLinkBoxes();stopConnectionWatch();
+    toast(was==="qr"?"El QR venció. Generá uno nuevo.":"El código venció. Generá uno nuevo.");
+    return;
+  }
+  const mins=Math.floor(left/60000),secs=Math.floor((left%60000)/1000);
+  const text=`Vence en ${mins}:${String(secs).padStart(2,"0")}.`;
+  const el=linkKind==="qr"?$("#qr-expiry"):$("#pairing-expiry");
+  if(el)el.textContent=text;
+}
+function startConnectionWatch(){
+  if(connectionWatch)return;
+  connectionPollTick=0;
+  connectionWatch=setInterval(async()=>{
+    if($("#page-connection").classList.contains("hidden")||document.visibilityState!=="visible")return;
+    updateLinkCountdown();
+    if(!linkKind){stopConnectionWatch();return}
+    connectionPollTick++;
+    if(connectionPollTick%5===0)await loadConnection({silent:true});
+  },1000);
+}
+function applyConnection(r,{silent=false}={}){
+  const connected=!!r.connected;
+  const dot=$("#connection-dot"),title=$("#connection-title"),detail=$("#connection-detail"),account=$("#connection-account");
+  dot.classList.toggle("ok",connected);
+  if(r.configured===false){
+    title.textContent="Evolution API sin configurar";
+    detail.textContent="Configurá EVOLUTION_URL, EVOLUTION_API_KEY y EVOLUTION_INSTANCE en el servidor.";
+  }else{
+    title.textContent=connected?"Conectado a WhatsApp":"WhatsApp sin conexión";
+    detail.textContent=r.error||(connected?"La sesión está activa y lista para enviar.":"Vinculá un número para empezar a enviar.");
+  }
+  if(connected&&(r.owner||r.profileName)){
+    $("#connection-name").textContent=r.profileName||"Cuenta de WhatsApp";
+    $("#connection-number").textContent=formatOwner(r.owner);
+    account.classList.remove("hidden");
+  }else account.classList.add("hidden");
+  $("#disconnect-button").classList.toggle("hidden",!connected);
+  if(connected){
+    const hadLink=!!linkKind;
+    hideLinkBoxes();stopConnectionWatch();
+    if(hadLink&&!silent)toast("WhatsApp vinculado");
+  }else if(linkKind)startConnectionWatch();
+  return connected;
+}
+async function loadConnection({silent=false}={}){
+  try{return applyConnection(await request("/api/connection"),{silent})}
+  catch(e){
+    $("#connection-title").textContent="No se pudo consultar";
+    $("#connection-detail").textContent=e.message;
+    $("#connection-account").classList.add("hidden");
+    $("#disconnect-button").classList.add("hidden");
+    return false;
+  }
+}
+async function requestConnect(payload,button){
+  if(button.disabled)return null;
+  const original=button.textContent;
+  button.disabled=true;button.textContent="Generando...";
+  try{
+    let r=await request("/api/connect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload||{})});
+    if(r.needsCreate){
+      if(!confirm(r.error||"La instancia no existe. ¿Crearla?"))return null;
+      r=await request("/api/connect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(payload||{}),create:true})});
+    }
+    if(!r.ok)throw new Error(r.error||"No se pudo generar la vinculación.");
+    return r;
+  }finally{button.disabled=false;button.textContent=original}
+}
+$("#refresh-connection").onclick=()=>loadConnection();
+$("#disconnect-button").onclick=async()=>{if(!confirm("¿Desvincular este número de WhatsApp? Vas a tener que volver a vincularlo para enviar mensajes."))return;const b=$("#disconnect-button");b.disabled=true;b.textContent="Desvinculando...";try{await request("/api/disconnect",{method:"POST"});toast("Número desvinculado");hideLinkBoxes();stopConnectionWatch();await loadConnection()}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent="Desvincular"}};
+$("#connect-button").onclick=async()=>{try{const r=await requestConnect({},$("#connect-button"));if(!r)return;if(!r.qr){hideLinkBoxes();toast("Evolution API no devolvió un QR. Revisá la instancia y su estado.");return}hideLinkBoxes();$("#qr-image").src=r.qr;const dl=$("#qr-download");if(dl){dl.href=r.qr;dl.download="whatsapp-qr."+(r.qrMime==="image/svg+xml"?"svg":"png");dl.removeAttribute("aria-disabled");dl.removeAttribute("tabindex")}linkKind="qr";linkExpiresAt=Date.now()+linkTtlMs;$("#qr-box").classList.remove("hidden");updateLinkCountdown();startConnectionWatch()}catch(e){toast(e.message)}};
 function formatPairing(code){const c=String(code||"").replace(/\s/g,"");return c.length===8?c.slice(0,4)+"-"+c.slice(4):c}
-$("#pairing-button").onclick=async()=>{const number=$("#connect-phone").value.trim();if(!number){toast("Escribí el número de WhatsApp con código de país.");return}const b=$("#pairing-button");b.disabled=true;b.textContent="Generando...";try{const r=await request("/api/connect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({number})});if(r.pairingCode){$("#pairing-code").textContent=formatPairing(r.pairingCode);$("#pairing-box").classList.remove("hidden");toast("Código generado. Ingresalo en WhatsApp.")}else{toast("Evolution no devolvió un código. Puede que la instancia ya esté en modo QR: probá de nuevo en unos segundos o usá el QR.")}}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent="Obtener código de vinculación"}};
+$("#pairing-button").onclick=async()=>{const input=$("#connect-phone"),number=input.value.trim();if(!number){toast("Escribí el número de WhatsApp con código de país.");return}try{const r=await requestConnect({number},$("#pairing-button"));if(!r)return;if(!r.pairingCode){hideLinkBoxes();toast("Evolution no devolvió un código. Puede que la instancia ya esté en modo QR: probá de nuevo en unos segundos o usá el QR.");return}hideLinkBoxes();$("#pairing-code").textContent=formatPairing(r.pairingCode);linkKind="pairing";linkExpiresAt=Date.now()+linkTtlMs;$("#pairing-box").classList.remove("hidden");updateLinkCountdown();startConnectionWatch();toast("Código generado. Ingresalo en WhatsApp.")}catch(e){toast(e.message)}};
 loadSummary();

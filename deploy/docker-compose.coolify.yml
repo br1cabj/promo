@@ -33,6 +33,7 @@ services:
       PANEL_PASSWORD: ${PANEL_PASSWORD:?definí PANEL_PASSWORD en Coolify}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       DEFAULT_COUNTRY: ${DEFAULT_COUNTRY:-AR}
+      LINK_TTL_MS: ${LINK_TTL_MS:-300000}
       # El panel habla con Evolution por la red interna del stack.
       EVOLUTION_URL: http://evolution-api:8080
       EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:?definí EVOLUTION_API_KEY en Coolify}

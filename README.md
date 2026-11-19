@@ -24,6 +24,7 @@ Panel web liviano para gestionar contactos y enviar mensajes/estados mediante Ev
    - `EVOLUTION_INSTANCE`: nombre exacto de la instancia.
    - `ENCRYPTION_KEY`: clave de 32 bytes (hex) para cifrar teléfono y DNI. Si la dejás vacía, se genera `data/.key` automáticamente. No la cambies una vez cargados los datos.
    - `DEFAULT_COUNTRY`: país para normalizar teléfonos (por defecto `AR`).
+   - `LINK_TTL_MS`: tiempo de vida del QR y del código de vinculación en milisegundos (por defecto `300000`, 5 minutos).
    - `SEND_DELAY_MS`: pausa base entre envíos (por defecto `1500`).
    - `SEND_DELAY_JITTER_MS`: aleatoriedad extra sobre la pausa, para no enviar con un patrón fijo (por defecto `2500`).
    - `SEND_BATCH_SIZE` y `SEND_BATCH_PAUSE_MS`: descanso largo cada N mensajes (por defecto `20` mensajes y `60000` ms).
@@ -73,6 +74,7 @@ En **Environment Variables** de la app:
 | `PANEL_PASSWORD` | contraseña larga y única |
 | `ENCRYPTION_KEY` | 64 caracteres hex (ver abajo) |
 | `DEFAULT_COUNTRY` | `AR` (o tu país) |
+| `LINK_TTL_MS` | `300000` (5 minutos) |
 | `EVOLUTION_URL` | URL de tu Evolution API |
 | `EVOLUTION_API_KEY` | tu API key |
 | `EVOLUTION_INSTANCE` | nombre exacto de la instancia |
@@ -109,7 +111,9 @@ Ahí viven la base SQLite, la clave (si no la definís por env) y los borradores
      ```
 - **Otra máquina** (p. ej. tu PC): usá una URL accesible desde el contenedor (HTTPS público o `http://IP:puerto`) y permití el acceso.
 - Verificá el estado en la página **WhatsApp** del panel. Si la instancia ya está conectada, **no hace falta reescanear el QR**.
-- **Vincular desde el celular (sin escanear):** si estás en el celular, el QR queda en la misma pantalla y no podés escanearlo. Para eso está la **Opción 1 · Código de vinculación**: en la página **WhatsApp** escribí el número a vincular (con código de país, solo dígitos) y el panel te devuelve un **código de 8 dígitos**. En WhatsApp del teléfono: *Dispositivos vinculados → Vincular un dispositivo → Vincular con número de teléfono*, y escribí ese código. El **código QR** (Opción 2) queda para cuando tenés **otra pantalla** (PC o tablet) donde mostrarlo y lo escaneás con el teléfono.
+- **Vincular desde el celular (sin escanear):** si estás en el celular, el QR queda en la misma pantalla y no podés escanearlo. Para eso está la **Opción 1 · Código de vinculación**: en la página **WhatsApp** escribí el número a vincular (con código de país, solo dígitos) y el panel te devuelve un **código de 8 dígitos**. El número se normaliza igual que los contactos: si escribís `3511234567` con `DEFAULT_COUNTRY=AR`, se envía `543511234567`. En WhatsApp del teléfono: *Dispositivos vinculados → Vincular un dispositivo → Vincular con número de teléfono*, y escribí ese código. El **código QR** (Opción 2) queda para cuando tenés **otra pantalla** (PC o tablet) donde mostrarlo y lo escaneás con el teléfono.
+- Mientras el QR o el código están visibles, el panel muestra un countdown y consulta el estado cada 5 segundos: en cuanto la sesión se conecta, oculta el QR/código, deshabilita la descarga y muestra la cuenta vinculada. Si vence el tiempo (`LINK_TTL_MS`), el link se oculta y hay que generar uno nuevo.
+- Si Evolution responde que la instancia no existe, el panel **no crea una instancia nueva automáticamente**: te pregunta confirmación antes de hacerlo, para evitar sesiones accidentales por un nombre mal configurado. Las generaciones de QR/código y las desvinculaciones quedan registradas en el **Historial**.
 - **Cuenta conectada:** cuando la sesión está activa, la página **WhatsApp** muestra el **número y el nombre de perfil** de la cuenta vinculada, así confirmás que es la correcta.
 - **Desvincular:** el botón **Desvincular** cierra la sesión de WhatsApp de la instancia (equivale a *logout*, **no borra** la instancia ni sus datos). Después podés volver a vincular con QR o con código de vinculación.
 

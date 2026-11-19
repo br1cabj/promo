@@ -8,6 +8,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { parse } = require("csv-parse/sync");
 const { createStore, StoreError } = require("./lib/db");
+const { normalizePhone, fallbackPhone } = require("./lib/phone");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -18,10 +19,13 @@ fs.mkdirSync(DATA, { recursive: true });
 // Almacén de datos sobre SQLite. Si la base está vacía, importa automáticamente
 // los datos del formato anterior (data/*.json), que se conservan como respaldo.
 // ---------------------------------------------------------------------------
+const DEFAULT_COUNTRY = process.env.DEFAULT_COUNTRY || "AR";
+// Los QR de WhatsApp y los códigos de vinculación vencen en pocos minutos.
+const LINK_TTL_MS = Math.max(1000, Number(process.env.LINK_TTL_MS || 5 * 60 * 1000));
 const store = createStore({
   dir: DATA,
   encryptionKey: process.env.ENCRYPTION_KEY,
-  defaultCountry: process.env.DEFAULT_COUNTRY || "AR"
+  defaultCountry: DEFAULT_COUNTRY
 });
 const migration = store.importLegacy(DATA);
 if (migration.contacts || migration.history || migration.skipped) {
@@ -467,7 +471,8 @@ app.get("/api/summary", (req, res) => {
     optedIn: counts.optedIn,
     history: counts.history,
     connectedConfig: configured(),
-    maxSendFiles: MAX_SEND_FILES
+    maxSendFiles: MAX_SEND_FILES,
+    linkTtlMs: LINK_TTL_MS
   });
 });
 
@@ -529,11 +534,44 @@ app.post("/api/import", upload.single("file"), (req, res) => {
 
 // Mensaje de error legible a partir de una respuesta de Evolution API (formatos variados).
 function evoError(e) {
+  const code = String(e?.code || "");
+  const raw = String(e?.message || "");
+  if (["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "ECONNRESET", "EPROTO"].includes(code) ||
+      /timeout of \d+ms exceeded|network error/i.test(raw)) {
+    return "No se pudo contactar con Evolution API. Revisá EVOLUTION_URL y que el servicio esté activo.";
+  }
   const d = e?.response?.data;
   const msg = d?.response?.message || d?.error?.message || d?.message || d?.error || e?.message;
   if (Array.isArray(msg)) return msg.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ");
   if (msg && typeof msg === "object") return JSON.stringify(msg);
   return typeof msg === "string" && msg ? msg : "Error al comunicarse con Evolution API.";
+}
+
+// Evolution devuelve el QR en formatos distintos según versión: base64 crudo,
+// data URI, objeto {base64}, e incluso SVG. Lo normalizamos a una data URI que
+// el navegador pueda mostrar y descargar con la extensión correcta.
+function extractQr(data) {
+  const raw = data?.base64 ?? data?.qrcode?.base64 ?? data?.qrcode ?? data?.qr ?? null;
+  if (typeof raw !== "string") return null;
+  const value = raw.trim();
+  if (!value) return null;
+  if (/^data:image\/[a-z0-9.+-]+[;]/i.test(value)) {
+    return { src: value, mime: value.slice(5, value.indexOf(";")) };
+  }
+  if (/^<svg[\s>]/i.test(value)) {
+    return { src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(value)}`, mime: "image/svg+xml" };
+  }
+  if (/^[A-Za-z0-9+/=\r\n]+$/.test(value)) {
+    const compact = value.replace(/\s/g, "");
+    let decoded = "";
+    try { decoded = Buffer.from(compact, "base64").toString("utf8").slice(0, 200).trim(); } catch { /* no es base64 */ }
+    if (/^<svg[\s>]/i.test(decoded)) {
+      const svg = Buffer.from(compact, "base64").toString("utf8");
+      return { src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`, mime: "image/svg+xml" };
+    }
+    return { src: `data:image/png;base64,${compact}`, mime: "image/png" };
+  }
+  return null;
 }
 
 // Valida el texto antes de mandarlo: los límites de WhatsApp son 4096 para
@@ -578,29 +616,35 @@ app.post("/api/disconnect", async (req, res) => {
   const instance = encodeURIComponent(config.instance);
   try {
     await api.delete(`/instance/logout/${instance}`);
+    addHistory({ kind: "connection", ok: true, type: "disconnect", name: "Número desvinculado" });
     return res.json({ ok: true });
   } catch (e) {
     // En Evolution v2.3.7 el logout puede devolver 500 aunque la sesión se haya
     // cerrado (bug interno de Prisma). Confirmamos el estado real antes de fallar.
     try {
       const st = await api.get(`/instance/connectionState/${instance}`);
-      if (st.data?.instance?.state !== "open") return res.json({ ok: true, recovered: true });
+      if (st.data?.instance?.state !== "open") {
+        addHistory({ kind: "connection", ok: true, type: "disconnect", name: "Número desvinculado (recuperado)" });
+        return res.json({ ok: true, recovered: true });
+      }
     } catch { /* seguimos al error original */ }
-    return res.status(502).json({ error: evoError(e) });
+    const error = evoError(e);
+    addHistory({ kind: "connection", ok: false, type: "disconnect", name: "Desvinculación", error });
+    return res.status(502).json({ error });
   }
 });
 
-// Devuelve la conexión de la instancia. Si todavía no existe (primer arranque
-// en un servidor nuevo), la crea. Si se pasa `number`, pide un código de
-// vinculación (pairing code) en vez del QR, para vincular desde el mismo celular
-// sin necesidad de escanear la pantalla.
-async function connectOrCreate(api, instanceName, number) {
+// Pide el QR o el código de vinculación. Si la instancia no existe (404), no la
+// crea automáticamente: avisa al front para que pida confirmación y reintente
+// con create=true. Así un typo en EVOLUTION_INSTANCE no genera otra sesión.
+async function connectOrCreate(api, instanceName, number, allowCreate = false) {
   const instance = encodeURIComponent(instanceName);
   const query = number ? `?number=${encodeURIComponent(number)}` : "";
   try {
     return await api.get(`/instance/connect/${instance}${query}`);
   } catch (e) {
     if (e.response?.status !== 404) throw e;
+    if (!allowCreate) return { needsCreate: true };
     const payload = { instanceName, integration: "WHATSAPP-BAILEYS", qrcode: true };
     if (number) payload.number = number;
     return await api.post(`/instance/create`, payload);
@@ -608,17 +652,38 @@ async function connectOrCreate(api, instanceName, number) {
 }
 
 app.post("/api/connect", async (req, res) => {
-  try {
-    const number = String(req.body?.number || "").replace(/\D/g, "");
-    if (req.body?.number && number.length < 8) {
-      return res.status(400).json({ error: "Ingresá el número con código de país y solo dígitos. Ej: 5493511234567." });
+  const rawNumber = String(req.body?.number ?? "").trim();
+  const allowCreate = req.body?.create === true;
+  let number = null;
+  if (rawNumber) {
+    number = normalizePhone(rawNumber, DEFAULT_COUNTRY) || fallbackPhone(rawNumber, DEFAULT_COUNTRY);
+    number = number ? String(number).replace(/\D/g, "") : "";
+    if (!number || number.length < 8 || number.length > 15) {
+      return res.status(400).json({ error: "Ingresá un número válido con código de país (8 a 15 dígitos)." });
     }
-    const r = await connectOrCreate(evoClient(), config.instance, number || null);
+  }
+  const kind = rawNumber ? "pairing" : "qr";
+  try {
+    const r = await connectOrCreate(evoClient(), config.instance, number || null, allowCreate);
+    if (r && r.needsCreate) {
+      return res.json({ ok: false, needsCreate: true, error: `La instancia "${config.instance}" no existe en Evolution API. ¿Crearla?` });
+    }
     const data = r.data || {};
-    const qr = data.base64 || data.qrcode?.base64 || data.qrcode || null;
-    const pairingCode = data.pairingCode || data.qrcode?.pairingCode || null;
-    res.json({ ok: true, qr, pairingCode, data });
-  } catch (e) { res.status(502).json({ error: evoError(e) }); }
+    const qr = extractQr(data);
+    const pairingCode = data.pairingCode || data.qrcode?.pairingCode || data.code || null;
+    addHistory({ kind: "connection", ok: true, type: kind, name: kind === "pairing" ? "Código de vinculación generado" : "QR generado" });
+    res.json({
+      ok: true,
+      qr: qr ? qr.src : null,
+      qrMime: qr ? qr.mime : null,
+      pairingCode: pairingCode ? String(pairingCode) : null,
+      data
+    });
+  } catch (e) {
+    const error = evoError(e);
+    addHistory({ kind: "connection", ok: false, type: kind, name: kind === "pairing" ? "Código de vinculación" : "QR", error });
+    res.status(502).json({ error });
+  }
 });
 
 app.post("/api/send", upload.array("files", MAX_SEND_FILES), (req, res) => {

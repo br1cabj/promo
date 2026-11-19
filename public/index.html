@@ -75,15 +75,15 @@
         <div class="connect-option">
           <h4>Opción 1 · Código de vinculación (desde este mismo celular)</h4>
           <p class="muted">Escribí el número de WhatsApp que querés vincular (con código de país, solo dígitos). Te damos un código de 8 dígitos para escribir en WhatsApp, sin escanear nada.</p>
-          <label>Número de WhatsApp<input id="connect-phone" inputmode="numeric" autocomplete="tel" placeholder="5493511234567"></label>
+          <label>Número de WhatsApp<input id="connect-phone" inputmode="numeric" autocomplete="tel" placeholder="5493511234567" pattern="[0-9+()\s-]{8,20}" maxlength="20"></label>
           <button id="pairing-button" class="primary" type="button">Obtener código de vinculación</button>
-          <div id="pairing-box" class="pairing-box hidden"><p class="muted">En el WhatsApp del teléfono: <strong>Dispositivos vinculados → Vincular un dispositivo → Vincular con número de teléfono</strong>, e ingresá este código:</p><div id="pairing-code" class="pairing-code">--------</div><p class="muted">El código vence en pocos minutos. Si falla, generá uno nuevo o usá el QR.</p></div>
+          <div id="pairing-box" class="pairing-box hidden"><p class="muted">En el WhatsApp del teléfono: <strong>Dispositivos vinculados → Vincular un dispositivo → Vincular con número de teléfono</strong>, e ingresá este código:</p><div id="pairing-code" class="pairing-code">--------</div><p class="muted"><span id="pairing-expiry">El código vence en pocos minutos.</span> Si falla, generá uno nuevo o usá el QR.</p></div>
         </div>
         <div class="connect-option">
           <h4>Opción 2 · Código QR (necesitás otra pantalla)</h4>
           <p class="muted">Abrí este panel en una computadora u otro dispositivo y escaneá el QR con el WhatsApp del teléfono.</p>
           <button id="connect-button" class="secondary" type="button">Mostrar código QR</button>
-          <div id="qr-box" class="qr-box hidden"><img id="qr-image" alt="Código QR de WhatsApp"><p>En WhatsApp, abrí Dispositivos vinculados y escaneá este código.</p><a id="qr-download" class="text-link" download="whatsapp-qr.png" aria-disabled="true" tabindex="-1">Descargar QR</a></div>
+          <div id="qr-box" class="qr-box hidden"><img id="qr-image" alt="Código QR de WhatsApp"><p>En WhatsApp, abrí Dispositivos vinculados y escaneá este código.</p><p class="muted"><span id="qr-expiry" class="muted"></span></p><a id="qr-download" class="text-link" download="whatsapp-qr.png" aria-disabled="true" tabindex="-1">Descargar QR</a></div>
         </div>
         <div class="hint">La URL, clave API y nombre de instancia se configuran en el archivo .env del servidor. No compartas esos datos.</div>
       </div>
