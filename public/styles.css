@@ -227,3 +227,68 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
   .resume-actions .secondary{width:100%}
 }
 
+/* ---- Clientes: la agenda manda, las altas van plegadas ---- */
+.contact-forms{border:1px solid var(--line);border-radius:13px;background:var(--card);box-shadow:var(--shadow);margin-bottom:16px}
+.contact-forms>summary{cursor:pointer;font-size:12px;font-weight:750;color:var(--green);padding:14px 18px;min-height:44px;display:flex;align-items:center;gap:8px;list-style:none}
+.contact-forms>summary::-webkit-details-marker{display:none}
+.contact-forms>summary::after{content:"+";margin-left:auto;font-size:18px;line-height:1}
+.contact-forms[open]>summary::after{content:"\2212"}
+.contact-forms[open]>summary{border-bottom:1px solid var(--line)}
+.contact-forms .two-col{padding:18px}
+.contact-forms .card{margin-bottom:0}
+.contacts-summary{margin:0;padding:0 20px 12px;color:var(--muted);font-size:11px}
+.empty-state{padding:4px 0;color:var(--muted);font-size:12px}
+.empty-state .text-button{vertical-align:middle}
+.contact-name{font-weight:750;color:var(--ink);overflow-wrap:anywhere}
+.contact-phone,.contact-dni{overflow-wrap:anywhere}
+.small-btn.danger{color:#a15b5b}
+@media(max-width:900px){
+  #page-contacts .table-title{flex-direction:column;align-items:stretch;gap:10px}
+  #page-contacts .table-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;gap:10px}
+  #page-contacts .table-tools input,#page-contacts .table-tools select{max-width:none;width:100%;margin:0}
+  #page-contacts .table-tools .secondary{width:100%}
+}
+@media(max-width:650px){
+  #page-contacts .table-tools{grid-template-columns:1fr}
+  #page-contacts .table-card tbody{padding:10px 10px 2px}
+  /* Ficha compacta: nombre + permiso, teléfono + DNI y las tres acciones en una sola fila. */
+  #contacts-body tr{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name status" "phone dni" "actions actions";column-gap:10px;row-gap:6px;padding:12px 12px 10px;margin:0 0 12px}
+  #contacts-body tr.contacts-empty-row{display:block;padding:12px}
+  #contacts-body td,#contacts-body td+td{display:block;width:auto;padding:0;border:0}
+  #contacts-body td::before{display:none}
+  #contacts-body td[data-label="Nombre"]{grid-area:name}
+  #contacts-body td[data-label="Teléfono"]{grid-area:phone}
+  #contacts-body td[data-label="DNI"]{grid-area:dni;text-align:right}
+  #contacts-body td[data-label="Autorizado"]{grid-area:status;text-align:right}
+  #contacts-body td[data-label="Acciones"]{grid-area:actions;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:4px}
+  #contacts-body td[data-label="Acciones"] .small-btn{margin:0;min-width:0;padding:8px 4px;font-size:11px}
+  #contacts-body .contact-phone,#contacts-body .contact-dni{font-size:11px;color:var(--muted)}
+  #contacts-body .contact-dni::before{content:"DNI "}
+  .contact-forms .two-col{padding:0 14px 14px}
+  .contact-forms>summary{padding:14px}
+  .contacts-summary{padding:0 14px 10px}
+}
+
+/* ---- Safe area: isla dinámica de iOS, notch y punch-hole de Android ---- */
+/* viewport-fit=cover hace que el contenido llegue al borde; estos insets lo
+   devuelven a la zona segura sin dejar huecos en pantallas sin recorte. */
+@supports(padding:env(safe-area-inset-top)){
+  body{min-height:100dvh}
+  header{top:env(safe-area-inset-top,0px)}
+  .sidebar{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  .toast{left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+  .emoji-panel{left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px))}
+  .modal{padding:calc(20px + env(safe-area-inset-top,0px)) calc(20px + env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) calc(20px + env(safe-area-inset-left,0px))}
+  @media(min-width:901px){
+    main{padding-left:max(42px,env(safe-area-inset-left,0px));padding-right:max(42px,env(safe-area-inset-right,0px))}
+  }
+  @media(min-width:651px) and (max-width:900px){
+    main{padding-left:max(22px,env(safe-area-inset-left,0px));padding-right:max(22px,env(safe-area-inset-right,0px))}
+  }
+  @media(max-width:650px){
+    main{padding-left:max(15px,env(safe-area-inset-left,0px));padding-right:max(15px,env(safe-area-inset-right,0px))}
+    .sidebar-close{right:max(12px,env(safe-area-inset-right,0px))}
+    .modal{padding:calc(12px + env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px))}
+  }
+}
+

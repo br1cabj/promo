@@ -32,7 +32,7 @@
       </div>
       <div id="resume-card" class="resume-card hidden"><div class="resume-icon"><i data-icon="draft"></i></div><div class="resume-body"><div class="eyebrow">BORRADOR AUTOMÁTICO</div><h3>Continuar donde lo dejaste</h3><p id="resume-meta" class="muted"></p><div class="resume-actions"><button type="button" class="secondary small" data-go="send" id="resume-send">Seguir en Enviar mensaje</button><button type="button" class="secondary small" data-go="status" id="resume-status">Seguir en Estados</button></div></div></div><div class="section-head"><div><div class="eyebrow">ACCIONES RÁPIDAS</div><h2>¿Qué querés hacer?</h2></div></div>
       <div class="quick-grid">
-        <button class="quick" data-go="contacts"><b><i data-icon="addUser"></i></b><strong>Agregar clientes</strong><span>Cargar o importar contactos</span></button>
+        <button class="quick" data-go="contacts" data-open-forms><b><i data-icon="addUser"></i></b><strong>Agregar clientes</strong><span>Cargar o importar contactos</span></button>
         <button class="quick" data-go="send"><b><i data-icon="send"></i></b><strong>Enviar promoción</strong><span>Texto, imagen o video</span></button>
         <button class="quick" data-go="status"><b><i data-icon="publish"></i></b><strong>Publicar un estado</strong><span>Compartir una novedad</span></button>
       </div>
@@ -40,12 +40,15 @@
     </section>
 
     <section id="page-contacts" class="page hidden">
-      <div class="section-head"><div><div class="eyebrow">AGENDA</div><h2>Clientes</h2><p>Importá un CSV o agregá contactos manualmente.</p></div></div>
-      <div class="two-col">
-        <div class="card"><h3>Agregar cliente</h3><form id="add-contact"><label>Nombre<input name="name" placeholder="Nombre y apellido"></label><label>Teléfono con código de país<input name="phone" placeholder="5493511234567" required></label><label>DNI (opcional)<input name="dni" placeholder="DNI"></label><label class="check"><input type="checkbox" name="optIn"> Tiene autorización para recibir promociones</label><button type="submit" class="primary">Guardar cliente</button></form></div>
-        <div class="card"><h3>Importar clientes</h3><p class="muted">Subí un archivo CSV con encabezados: nombre, telefono, dni, optin.</p><form id="import-form"><label>Archivo CSV<input type="file" name="file" accept=".csv,text/csv" required></label><button type="submit" class="secondary">Importar CSV</button></form><div class="hint">Los contactos importados sin una columna <code>optin</code> afirmativa quedan deshabilitados para promociones.</div><a href="/ejemplo-clientes.csv" download class="text-link">Descargar CSV de ejemplo</a></div>
-      </div>
-      <div class="card table-card"><div class="table-title"><h3>Lista de clientes</h3><div class="table-tools"><input id="contact-search" placeholder="Buscar nombre, teléfono o DNI..."><button id="export-contacts" class="secondary" type="button">Exportar CSV</button></div></div><div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Teléfono</th><th>DNI</th><th>Autorizado</th><th>Acciones</th></tr></thead><tbody id="contacts-body"></tbody></table></div></div>
+      <div class="section-head"><div><div class="eyebrow">AGENDA</div><h2>Clientes</h2><p>Buscá, editá y administrá tu agenda.</p></div></div>
+      <div class="card table-card"><div class="table-title"><h3>Lista de clientes</h3><div class="table-tools"><input id="contact-search" type="search" placeholder="Buscar nombre, teléfono o DNI..." aria-label="Buscar en los clientes"><select id="contacts-filter" aria-label="Filtrar clientes por autorización"><option value="">Todos los clientes</option><option value="ok">Solo autorizados</option><option value="pending">Sin autorizar</option></select><button id="export-contacts" class="secondary" type="button">Exportar CSV</button></div></div><p id="contacts-summary" class="contacts-summary" role="status" aria-live="polite">Cargando clientes...</p><div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Teléfono</th><th>DNI</th><th>Autorizado</th><th>Acciones</th></tr></thead><tbody id="contacts-body"></tbody></table></div></div>
+      <details id="contact-forms" class="contact-forms">
+        <summary>Agregar o importar clientes</summary>
+        <div class="two-col">
+          <div class="card"><h3>Agregar cliente</h3><form id="add-contact"><label>Nombre<input name="name" placeholder="Nombre y apellido"></label><label>Teléfono con código de país<input name="phone" placeholder="5493511234567" required></label><label>DNI (opcional)<input name="dni" placeholder="DNI"></label><label class="check"><input type="checkbox" name="optIn"> Tiene autorización para recibir promociones</label><button type="submit" class="primary">Guardar cliente</button></form></div>
+          <div class="card"><h3>Importar clientes</h3><p class="muted">Subí un archivo CSV con encabezados: nombre, telefono, dni, optin.</p><form id="import-form"><label>Archivo CSV<input type="file" name="file" accept=".csv,text/csv" required></label><button type="submit" class="secondary">Importar CSV</button></form><div class="hint">Los contactos importados sin una columna <code>optin</code> afirmativa quedan deshabilitados para promociones.</div><a href="/ejemplo-clientes.csv" download class="text-link">Descargar CSV de ejemplo</a></div>
+        </div>
+      </details>
     </section>
 
     <section id="page-send" class="page hidden">

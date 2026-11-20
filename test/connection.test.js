@@ -86,5 +86,5 @@ test("los confirms nativos se reemplazan por un modal accesible", () => {
   assert.match(app, /function askConfirm\(message/);
   assert.match(app, /function closeConfirm\(result\)/);
   assert.match(app, /if\(ev\.key==="Escape"\)\{closeEmojiPanels\(\);closeEdit\(\);closeConfirm\(false\);closeTemplate\(false\);closeNav\(true\)\}/);
-  assert.equal((app.match(/await askConfirm\(/g) || []).length, 8, "debe reemplazar los 8 confirms (incluye plantillas)");
+  assert.equal((app.match(/await askConfirm\(/g) || []).length, 9, "debe reemplazar los 9 confirms (incluye plantillas y borrado de clientes)");
 });

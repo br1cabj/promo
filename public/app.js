@@ -5,6 +5,7 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 function hydrateIcons(){$$("[data-icon]").forEach(el=>{const svg=iconSvg(el.dataset.icon);if(svg)el.outerHTML=svg})}
 hydrateIcons();
 let contacts = [];
+let contactFormsAutoOpened = false;
 let toastTimer;
 let selectedRecipients = new Set();
 let authorizedCount = 0;
@@ -70,7 +71,7 @@ function showPage(name){
 }
 $$(".nav").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));
 // Incluye las acciones rápidas y el chip "Ver WhatsApp" de Enviar.
-$$("[data-go]").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.go)));
+$$("[data-go]").forEach(b=>b.addEventListener("click",()=>{showPage(b.dataset.go);if(b.dataset.openForms!==undefined)openContactForms()}));
 // Navegación móvil: cajón lateral en vez de barra inferior.
 function openNav(){
   const side=$(".sidebar"),overlay=$("#nav-overlay"),btn=$("#menu-button");
@@ -107,10 +108,75 @@ async function loadContacts(){contacts=await request("/api/contacts");pruneSelec
 // Quita de la selección los contactos que ya no existen o perdieron la
 // autorización: así el contador y el confirm coinciden con lo que envía el API.
 function pruneSelected(){const valid=new Set(contacts.filter(c=>c.optIn).map(c=>c.id));for(const id of [...selectedRecipients])if(!valid.has(id))selectedRecipients.delete(id)}
-async function refreshContacts(){try{await loadContacts();renderContacts();updateSelected()}catch(e){toast(e.message)}}
-function renderContacts(){const q=($("#contact-search").value||"").toLowerCase();const rows=contacts.filter(c=>(c.name+" "+c.phone+" "+(c.dni||"")).toLowerCase().includes(q));$("#contacts-body").innerHTML=rows.map(c=>`<tr><td data-label="Nombre">${esc(c.name||"Sin nombre")}</td><td data-label="Teléfono">${esc(c.phone)}</td><td data-label="DNI">${esc(c.dni||"—")}</td><td data-label="Autorizado"><span class="pill ${c.optIn?"yes":"no"}">${c.optIn?"Sí":"No"}</span></td><td data-label="Acciones"><button class="small-btn" data-edit="${c.id}">Editar</button><button class="small-btn" data-toggle="${c.id}">${c.optIn?"Quitar permiso":"Marcar autorizado"}</button><button class="small-btn" data-delete="${c.id}">Eliminar</button></td></tr>`).join("")||'<tr><td colspan="5">No hay clientes para mostrar.</td></tr>';$("#contacts-body").querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));$("#contacts-body").querySelectorAll("[data-toggle]").forEach(b=>b.onclick=async()=>{const c=contacts.find(x=>x.id===b.dataset.toggle);try{await request("/api/contacts/"+c.id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({optIn:!c.optIn})});refreshContacts();loadSummary()}catch(e){toast(e.message)}});$("#contacts-body").querySelectorAll("[data-delete]").forEach(b=>b.onclick=async()=>{const c=contacts.find(x=>x.id===b.dataset.delete);if(!c)return;try{await request("/api/contacts/"+c.id,{method:"DELETE"});selectedRecipients.delete(c.id);refreshContacts();loadSummary();toast("Cliente eliminado",{label:"Deshacer",onClick:()=>restoreContact(c)})}catch(e){toast(e.message)}})}
+async function refreshContacts(){try{
+  await loadContacts();
+  // Con la agenda vacía el alta tiene que estar a la vista. Se decide después
+  // de cargar (no antes) y una sola vez, para no reabrir lo que el usuario plegó.
+  const forms=$("#contact-forms");
+  if(forms&&!contacts.length&&!contactFormsAutoOpened){forms.open=true;contactFormsAutoOpened=true}
+  renderContacts();updateSelected();
+}catch(e){toast(e.message)}}
+// El número guardado sigue siendo el canónico de WhatsApp: esto solo lo hace
+// legible en pantalla y también entra en la búsqueda con o sin espacios.
+function formatPhoneDisplay(phone){
+  const d=String(phone||"").replace(/\D/g,"");
+  if(d.startsWith("54")&&d.length===13)return `+54 ${d.slice(2,3)} ${d.slice(3,6)} ${d.slice(6,9)}-${d.slice(9)}`;
+  if(d.startsWith("54")&&d.length===12)return `+54 ${d.slice(2,5)} ${d.slice(5,8)}-${d.slice(8)}`;
+  if(d.length===10)return `${d.slice(0,3)} ${d.slice(3,6)}-${d.slice(6)}`;
+  if(d.length>7)return `+${d.slice(0,d.length-7)} ${d.slice(-7,-4)}-${d.slice(-4)}`;
+  return String(phone||"");
+}
+function openContactForms(){
+  const details=$("#contact-forms");if(!details)return;
+  details.open=true;
+  const field=$("#add-contact [name=name]");
+  if(field)field.focus({preventScroll:false});
+}
+function renderContacts(){
+  const q=($("#contact-search").value||"").toLowerCase().trim();
+  const filter=$("#contacts-filter"),status=filter?filter.value:"";
+  const rows=contacts.filter(c=>{
+    if(status==="ok"&&!c.optIn)return false;
+    if(status==="pending"&&c.optIn)return false;
+    if(!q)return true;
+    return [c.name,c.phone,formatPhoneDisplay(c.phone),c.dni].join(" ").toLowerCase().includes(q);
+  });
+  const summary=$("#contacts-summary");
+  if(summary){
+    const authorized=contacts.filter(c=>c.optIn).length;
+    summary.textContent=contacts.length
+      ? `Mostrando ${rows.length} de ${contacts.length} clientes${rows.length!==contacts.length?" (filtrados)":""} · ${authorized} autorizados.`
+      : "Todavía no hay clientes.";
+  }
+  const body=$("#contacts-body");
+  body.innerHTML=rows.map(c=>{
+    const name=c.name||"Sin nombre";
+    const perm=c.optIn?"Quitar":"Autorizar";
+    const permLabel=c.optIn?`Quitar autorización a ${name}`:`Autorizar a ${name}`;
+    return `<tr><td data-label="Nombre"><span class="contact-name">${esc(name)}</span></td><td data-label="Teléfono"><span class="contact-phone">${esc(formatPhoneDisplay(c.phone))}</span></td><td data-label="DNI"><span class="contact-dni">${esc(c.dni||"—")}</span></td><td data-label="Autorizado"><span class="pill ${c.optIn?"yes":"no"}">${c.optIn?"Autorizado":"Pendiente"}</span></td><td data-label="Acciones"><button class="small-btn" data-edit="${c.id}" aria-label="Editar a ${esc(name)}">Editar</button><button class="small-btn" data-toggle="${c.id}" aria-label="${esc(permLabel)}">${perm}</button><button class="small-btn danger" data-delete="${c.id}" aria-label="Eliminar a ${esc(name)}">Eliminar</button></td></tr>`;
+  }).join("")||(contacts.length
+    ? '<tr class="contacts-empty-row"><td colspan="5"><div class="empty-state">Ningún cliente coincide con los filtros. <button type="button" class="text-button" data-clear-filters>Limpiar filtros</button></div></td></tr>'
+    : '<tr class="contacts-empty-row"><td colspan="5"><div class="empty-state">Todavía no cargaste clientes. <button type="button" class="text-button" data-empty-add>Agregar el primero</button></div></td></tr>');
+  body.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));
+  body.querySelectorAll("[data-toggle]").forEach(b=>b.onclick=async()=>{
+    const c=contacts.find(x=>x.id===b.dataset.toggle);if(!c)return;
+    try{await request("/api/contacts/"+c.id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({optIn:!c.optIn})});refreshContacts();loadSummary()}
+    catch(e){toast(e.message)}
+  });
+  body.querySelectorAll("[data-delete]").forEach(b=>b.onclick=async()=>{
+    const c=contacts.find(x=>x.id===b.dataset.delete);if(!c)return;
+    if(!await askConfirm(`¿Eliminar a ${c.name||"Sin nombre"}? Podés restaurarlo desde el aviso.`,{title:"Eliminar cliente",acceptLabel:"Eliminar",danger:true}))return;
+    try{await request("/api/contacts/"+c.id,{method:"DELETE"});selectedRecipients.delete(c.id);refreshContacts();loadSummary();toast("Cliente eliminado",{label:"Deshacer",onClick:()=>restoreContact(c)})}
+    catch(e){toast(e.message)}
+  });
+  const add=body.querySelector("[data-empty-add]");
+  if(add)add.onclick=openContactForms;
+  const clear=body.querySelector("[data-clear-filters]");
+  if(clear)clear.onclick=()=>{const s=$("#contact-search"),f=$("#contacts-filter");if(s)s.value="";if(f)f.value="";renderContacts()};
+}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 let searchTimer;$("#contact-search").addEventListener("input",()=>{clearTimeout(searchTimer);searchTimer=setTimeout(renderContacts,200)});
+$("#contacts-filter").addEventListener("change",renderContacts);
 function csvCell(v){const s=String(v??"");return /[",\n\r]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s}
 async function exportContacts(){try{if(!contacts.length)await loadContacts();if(!contacts.length)return toast("No hay clientes para exportar.");const rows=[["nombre","telefono","dni","optin"]];for(const c of contacts)rows.push([c.name||"",c.phone||"",c.dni||"",c.optIn?"si":"no"]);const csv="\uFEFF"+rows.map(r=>r.map(csvCell).join(",")).join("\r\n")+"\r\n";const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});const url=URL.createObjectURL(blob);const d=new Date();const stamp=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");const a=document.createElement("a");a.href=url;a.download="clientes-"+stamp+".csv";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);toast("Exportados "+contacts.length+" clientes.")}catch(e){toast(e.message)}}
 $("#export-contacts").onclick=exportContacts;

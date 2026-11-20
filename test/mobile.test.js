@@ -83,3 +83,29 @@ test("7. los campos y modales se adaptan al teclado y al área segura", () => {
   assert.ok(css.includes(".toast{left:12px;right:12px;bottom:calc(16px + env(safe-area-inset-bottom))"));
   assert.ok(css.includes("height:100dvh"));
 });
+
+test("8. la agenda en celular es una ficha compacta con acciones en una fila", () => {
+  assert.ok(css.includes("#contacts-body tr{display:grid;grid-template-columns:minmax(0,1fr) auto"));
+  assert.ok(css.includes('grid-template-areas:"name status" "phone dni" "actions actions"'));
+  assert.ok(css.includes("#contacts-body td::before{display:none}"));
+  assert.ok(css.includes("#contacts-body td[data-label=\"Acciones\"]{grid-area:actions;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))"));
+  assert.ok(css.includes("#contacts-body .contact-dni::before{content:\"DNI \"}"));
+  assert.ok(css.includes("#page-contacts .table-tools{grid-template-columns:1fr}"));
+  assert.ok(css.includes("#page-contacts .table-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))"));
+  assert.ok(css.includes(".contact-forms .two-col{padding:0 14px 14px}"));
+});
+
+test("9. la isla dinámica, el notch y el punch-hole respetan el área segura", () => {
+  assert.ok(html.includes('content="width=device-width,initial-scale=1,viewport-fit=cover"'));
+  assert.ok(css.includes("@supports(padding:env(safe-area-inset-top))"));
+  assert.ok(css.includes("header{top:env(safe-area-inset-top,0px)}"));
+  assert.ok(css.includes(".sidebar{padding-left:max(16px,env(safe-area-inset-left,0px))"));
+  assert.ok(css.includes(".toast{left:max(12px,env(safe-area-inset-left,0px))"));
+  assert.ok(css.includes(".emoji-panel{left:max(12px,env(safe-area-inset-left,0px))"));
+  assert.ok(css.includes(".modal{padding:calc(20px + env(safe-area-inset-top,0px))"));
+  assert.ok(css.includes("main{padding-left:max(42px,env(safe-area-inset-left,0px))"));
+  assert.ok(css.includes("main{padding-left:max(22px,env(safe-area-inset-left,0px))"));
+  assert.ok(css.includes("main{padding-left:max(15px,env(safe-area-inset-left,0px))"));
+  assert.ok(css.includes(".sidebar-close{right:max(12px,env(safe-area-inset-right,0px))}"));
+  assert.ok(css.includes("@media(min-width:651px) and (max-width:900px)"));
+});

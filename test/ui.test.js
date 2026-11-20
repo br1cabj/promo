@@ -111,6 +111,41 @@ test("8. el historial se filtra, explica el resultado y puede cargar más", () =
   assert.ok(css.includes(".history-detail strong{"));
 });
 
+test("9. clientes: formularios plegables, filtro, resumen y acciones con contexto", () => {
+  assert.ok(html.includes('id="contact-forms" class="contact-forms"'));
+  assert.ok(html.includes("<summary>Agregar o importar clientes</summary>"));
+  assert.ok(html.includes('data-go="contacts" data-open-forms'));
+  assert.ok(html.includes('<section id="page-contacts"'));
+  // La lista va antes que los formularios en el markup.
+  assert.ok(html.indexOf('id="contacts-body"') < html.indexOf('id="contact-forms"'));
+  assert.ok(html.includes('id="contact-search" type="search"'));
+  assert.ok(html.includes('id="contact-search" type="search" placeholder="Buscar nombre, teléfono o DNI..." aria-label="Buscar en los clientes"'));
+  assert.ok(html.includes('id="contacts-filter" aria-label="Filtrar clientes por autorización"'));
+  assert.ok(html.includes('<option value="ok">Solo autorizados</option>'));
+  assert.ok(html.includes('<option value="pending">Sin autorizar</option>'));
+  assert.ok(html.includes('id="contacts-summary" class="contacts-summary" role="status" aria-live="polite"'));
+  assert.ok(app.includes("function formatPhoneDisplay(phone)"));
+  assert.ok(app.includes("if(d.startsWith(\"54\")&&d.length===12)"));
+  assert.ok(app.includes("function openContactForms()"));
+  assert.ok(app.includes("if(b.dataset.openForms!==undefined)openContactForms()"));
+  assert.ok(app.includes('let contactFormsAutoOpened = false;'));
+  assert.ok(app.includes('if(forms&&!contacts.length&&!contactFormsAutoOpened){forms.open=true;contactFormsAutoOpened=true}'));
+  assert.ok(app.includes('if(status==="ok"&&!c.optIn)return false'));
+  assert.ok(app.includes('if(status==="pending"&&c.optIn)return false'));
+  assert.ok(app.includes("Mostrando ${rows.length} de ${contacts.length} clientes"));
+  assert.ok(app.includes(" · ${authorized} autorizados."));
+  assert.ok(app.includes('aria-label="Editar a ${esc(name)}"'));
+  assert.ok(app.includes('aria-label="Eliminar a ${esc(name)}"'));
+  assert.ok(app.includes('class="small-btn danger" data-delete'));
+  assert.ok(app.includes("Todavía no cargaste clientes."));
+  assert.ok(app.includes("data-empty-add"));
+  assert.ok(app.includes("data-clear-filters"));
+  assert.ok(app.includes('await askConfirm(`¿Eliminar a ${c.name||"Sin nombre"}'));
+  assert.ok(css.includes(".contact-forms>summary{"));
+  assert.ok(css.includes(".contacts-summary{"));
+  assert.ok(css.includes(".small-btn.danger{"));
+});
+
 test("accesibilidad: resultado anunciable y navegación con aria-current", () => {
   assert.match(html, /id="status-result"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
   assert.ok(app.includes('b.setAttribute("aria-current","page")'));
