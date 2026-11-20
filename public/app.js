@@ -71,7 +71,14 @@ function showPage(name){
 }
 $$(".nav").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));
 // Incluye las acciones rápidas y el chip "Ver WhatsApp" de Enviar.
-$$("[data-go]").forEach(b=>b.addEventListener("click",()=>{showPage(b.dataset.go);if(b.dataset.openForms!==undefined)openContactForms()}));
+$$("[data-go]").forEach(b=>b.addEventListener("click",()=>{
+  const page=b.dataset.go;
+  showPage(page);
+  if(b.dataset.openForms!==undefined){openContactForms();return}
+  // Las acciones rápidas llevan el foco al título de la vista destino, igual que el menú lateral.
+  const heading=$("#page-"+page+" .section-head h2");
+  if(heading){heading.setAttribute("tabindex","-1");heading.focus({preventScroll:true})}
+}));
 // Navegación móvil: cajón lateral en vez de barra inferior.
 function openNav(){
   const side=$(".sidebar"),overlay=$("#nav-overlay"),btn=$("#menu-button");
@@ -343,10 +350,22 @@ function updateResumeCard(){
   }).filter(Boolean);
   if(!rows.length){card.classList.add("hidden");return}
   card.classList.remove("hidden");
-  const meta=$("#resume-meta");if(meta)meta.textContent=rows.map(r=>r.label+" · "+r.detail).join("  |  ");
-  const sendBtn=$("#resume-send"),statusBtn=$("#resume-status");
-  if(sendBtn)sendBtn.classList.toggle("hidden",!rows.some(r=>r.section==="send"));
-  if(statusBtn)statusBtn.classList.toggle("hidden",!rows.some(r=>r.section==="status"));
+  // Cada destino es su propia fila: se lee mejor y empuja menos el contenido en el celular.
+  for(const sec of ["send","status"]){
+    const item=rows.find(r=>r.section===sec);
+    const row=$("#resume-row-"+sec),btn=$("#resume-"+sec),meta=$("#resume-"+sec+"-meta");
+    if(row)row.classList.toggle("hidden",!item);
+    if(btn)btn.classList.toggle("hidden",!item);
+    if(meta)meta.textContent=item?item.label+" · "+item.detail:"";
+  }
+}
+// El aviso legal se pliega una sola vez en celular; en escritorio sigue abierto.
+let homeNoticeCollapsed=false;
+function collapseHomeNotice(){
+  if(homeNoticeCollapsed)return;
+  homeNoticeCollapsed=true;
+  if(!window.matchMedia||!matchMedia("(max-width:650px)").matches)return;
+  const notice=$("#home-notice");if(notice)notice.open=false;
 }
 function draftPayload(section){const f=DRAFT_FIELDS[section];return{text:$(f.text)?.value||"",type:$(f.type)?.value||"text",recipientIds:section==="send"?[...selectedRecipients]:[]}}
 async function saveDraftNow(section,{silent=false}={}){
@@ -843,6 +862,7 @@ $("#disconnect-button").onclick=async()=>{if(!await askConfirm("¿Desvincular es
 $("#connect-button").onclick=async()=>{try{const r=await requestConnect({},$("#connect-button"));if(!r)return;if(!r.qr){hideLinkBoxes();toast("Evolution API no devolvió un QR. Revisá la instancia y su estado.");return}hideLinkBoxes();$("#qr-image").src=r.qr;const dl=$("#qr-download");if(dl){dl.href=r.qr;dl.download="whatsapp-qr."+(r.qrMime==="image/svg+xml"?"svg":"png");dl.removeAttribute("aria-disabled");dl.removeAttribute("tabindex")}linkKind="qr";linkExpiresAt=Date.now()+linkTtlMs;$("#qr-box").classList.remove("hidden");updateLinkCountdown();startConnectionWatch()}catch(e){toast(e.message)}};
 function formatPairing(code){const c=String(code||"").replace(/\s/g,"");return c.length===8?c.slice(0,4)+"-"+c.slice(4):c}
 $("#pairing-button").onclick=async()=>{const input=$("#connect-phone"),number=input.value.trim();if(!number){toast("Escribí el número de WhatsApp con código de país.");return}try{const r=await requestConnect({number},$("#pairing-button"));if(!r)return;if(!r.pairingCode){hideLinkBoxes();toast("Evolution no devolvió un código. Puede que la instancia ya esté en modo QR: probá de nuevo en unos segundos o usá el QR.");return}hideLinkBoxes();$("#pairing-code").textContent=formatPairing(r.pairingCode);linkKind="pairing";linkExpiresAt=Date.now()+linkTtlMs;$("#pairing-box").classList.remove("hidden");updateLinkCountdown();startConnectionWatch();toast("Código generado. Ingresalo en WhatsApp.")}catch(e){toast(e.message)}};
+collapseHomeNotice();
 loadSummary();
 loadConnection({silent:true});
 // Si la página se recargó durante un envío, retomamos el seguimiento guardado.

@@ -74,6 +74,19 @@ test("6. el historial muestra fecha corta en celular sin ocultar la completa a l
   assert.ok(css.includes(".history-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))"));
 });
 
+test("10. Inicio en celular: héroe corto, tres métricas en fila y acciones en dos columnas", () => {
+  assert.ok(css.includes("@media(min-width:651px) and (max-width:900px){\n  #page-home .welcome{min-height:0;padding:20px 22px}"));
+  assert.ok(css.includes("#page-home .stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:12px 0 16px}"));
+  assert.ok(css.includes("#page-home .quick-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"));
+  assert.ok(css.includes("#page-home .welcome-mark{position:absolute"));
+  assert.ok(css.includes("#page-home .stat small{position:absolute;width:1px;height:1px"));
+  assert.ok(css.includes("#page-home .section-head{margin:12px 0 9px}"));
+  assert.ok(css.includes("#page-home .notice>summary{min-height:44px}"));
+  assert.ok(css.includes(".user-label{display:none}"));
+  assert.ok(css.includes(".logout-link{min-width:44px;min-height:44px;padding:0;justify-content:center;font-size:12px}"));
+  assert.ok(css.includes("#page-home .resume-row .secondary{min-width:74px;min-height:44px"));
+});
+
 test("7. los campos y modales se adaptan al teclado y al área segura", () => {
   assert.ok(app.includes('if(smallScreen&&active&&typeof active.blur==="function")active.blur();'));
   assert.ok(css.includes("input:not([type=checkbox]),select,textarea{font-size:16px}"));

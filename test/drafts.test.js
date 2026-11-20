@@ -57,6 +57,11 @@ test("3. el borrador deja rastro en la navegación y en el Inicio", () => {
   assert.ok(html.includes("Continuar donde lo dejaste"));
   assert.ok(html.includes('id="resume-send"'));
   assert.ok(html.includes('id="resume-status"'));
+  assert.ok(html.includes('id="resume-row-send"'));
+  assert.ok(html.includes('id="resume-row-status"'));
+  assert.ok(html.includes('id="resume-send-meta"'));
+  assert.ok(html.includes('id="resume-status-meta"'));
+  assert.ok(html.includes('aria-label="Seguir en Enviar mensaje"'));
   assert.ok(app.includes("function updateDraftBadges()"));
   assert.ok(app.includes("function updateResumeCard()"));
   assert.ok(app.includes("if(name===\"home\")updateResumeCard();"));

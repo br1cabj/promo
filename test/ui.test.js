@@ -127,7 +127,7 @@ test("9. clientes: formularios plegables, filtro, resumen y acciones con context
   assert.ok(app.includes("function formatPhoneDisplay(phone)"));
   assert.ok(app.includes("if(d.startsWith(\"54\")&&d.length===12)"));
   assert.ok(app.includes("function openContactForms()"));
-  assert.ok(app.includes("if(b.dataset.openForms!==undefined)openContactForms()"));
+  assert.ok(app.includes("if(b.dataset.openForms!==undefined){openContactForms();return}"));
   assert.ok(app.includes('let contactFormsAutoOpened = false;'));
   assert.ok(app.includes('if(forms&&!contacts.length&&!contactFormsAutoOpened){forms.open=true;contactFormsAutoOpened=true}'));
   assert.ok(app.includes('if(status==="ok"&&!c.optIn)return false'));
@@ -144,6 +144,30 @@ test("9. clientes: formularios plegables, filtro, resumen y acciones con context
   assert.ok(css.includes(".contact-forms>summary{"));
   assert.ok(css.includes(".contacts-summary{"));
   assert.ok(css.includes(".small-btn.danger{"));
+});
+
+test("10. Inicio: acciones a la vista, métricas compactas y resumen por destino", () => {
+  assert.ok(html.includes('<div class="welcome-mark" aria-hidden="true">'));
+  assert.ok(html.includes("<p>Cargá contactos y enviá novedades.</p>"));
+  assert.ok(html.includes("<span>AUTORIZADOS</span>"));
+  assert.equal((html.match(/class="quick" data-go="/g) || []).length, 5, "cinco acciones rápidas");
+  assert.ok(html.includes('class="quick" data-go="history"'));
+  assert.ok(html.includes('class="quick" data-go="connection"'));
+  assert.ok(html.includes('id="home-notice" class="notice" open'));
+  assert.ok(html.includes("<summary>Antes de enviar</summary>"));
+  assert.ok(html.includes('id="resume-meta" class="resume-meta" role="list"'));
+  assert.ok(html.includes('id="resume-row-send" class="resume-row" role="listitem"'));
+  assert.ok(html.includes('id="resume-status-meta" class="resume-row-text"'));
+  assert.ok(html.includes('id="resume-send" aria-label="Seguir en Enviar mensaje">Seguir</button>'));
+  assert.ok(app.includes("function collapseHomeNotice()"));
+  assert.ok(app.includes("collapseHomeNotice();\nloadSummary();"));
+  assert.ok(app.includes('const heading=$("#page-"+page+" .section-head h2")'));
+  assert.ok(app.includes('heading.setAttribute("tabindex","-1");heading.focus({preventScroll:true})'));
+  assert.ok(app.includes('meta.textContent=item?item.label+" · "+item.detail:""'));
+  assert.ok(!app.includes('join("  |  ")'), "el resumen ya no separa destinos con |");
+  assert.ok(css.includes(".resume-row{display:flex;align-items:center;justify-content:space-between"));
+  assert.ok(css.includes(".notice>summary{"));
+  assert.ok(css.includes("@media(min-width:1180px){.quick-grid{grid-template-columns:repeat(5,minmax(0,1fr))}}"));
 });
 
 test("accesibilidad: resultado anunciable y navegación con aria-current", () => {

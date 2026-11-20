@@ -22,21 +22,23 @@
   </aside>
   <div id="nav-overlay" class="nav-overlay" aria-hidden="true"></div>
   <main>
-    <header><button id="menu-button" class="menu-button" type="button" aria-label="Abrir menú" aria-expanded="false" aria-controls="sidebar-nav"><i data-icon="menu"></i></button><div><div class="eyebrow">ADMINISTRACIÓN</div><h1 id="page-title">Inicio</h1></div><div class="user-chip"><span class="online"></span> Panel privado <form method="post" action="/logout" class="logout-form"><button type="submit" class="logout-link">Salir</button></form></div></header>
+    <header><button id="menu-button" class="menu-button" type="button" aria-label="Abrir menú" aria-expanded="false" aria-controls="sidebar-nav"><i data-icon="menu"></i></button><div><div class="eyebrow">ADMINISTRACIÓN</div><h1 id="page-title">Inicio</h1></div><div class="user-chip"><span class="online"></span><span class="user-label">Panel privado</span><form method="post" action="/logout" class="logout-form"><button type="submit" class="logout-link" aria-label="Salir (cerrar sesión)">Salir</button></form></div></header>
     <section id="page-home" class="page">
-      <div class="welcome"><div><div class="eyebrow light">TU NEGOCIO, MÁS SIMPLE</div><h2>Promociones sin perder tiempo.</h2><p>Administrá tus contactos y compartí novedades desde un solo lugar.</p></div><div class="welcome-mark"><i data-icon="sparkles"></i></div></div>
+      <div class="welcome"><div><div class="eyebrow light">TU NEGOCIO, MÁS SIMPLE</div><h2>Promociones sin perder tiempo.</h2><p>Cargá contactos y enviá novedades.</p></div><div class="welcome-mark" aria-hidden="true"><i data-icon="sparkles"></i></div></div>
       <div class="stats">
         <article class="stat"><span>CLIENTES</span><strong id="stat-total">0</strong><small>Contactos cargados</small></article>
-        <article class="stat"><span>HABILITADOS</span><strong id="stat-optin">0</strong><small>Con autorización promocional</small></article>
+        <article class="stat"><span>AUTORIZADOS</span><strong id="stat-optin">0</strong><small>Con autorización promocional</small></article>
         <article class="stat"><span>REGISTROS</span><strong id="stat-history">0</strong><small>Actividad guardada</small></article>
       </div>
-      <div id="resume-card" class="resume-card hidden"><div class="resume-icon"><i data-icon="draft"></i></div><div class="resume-body"><div class="eyebrow">BORRADOR AUTOMÁTICO</div><h3>Continuar donde lo dejaste</h3><p id="resume-meta" class="muted"></p><div class="resume-actions"><button type="button" class="secondary small" data-go="send" id="resume-send">Seguir en Enviar mensaje</button><button type="button" class="secondary small" data-go="status" id="resume-status">Seguir en Estados</button></div></div></div><div class="section-head"><div><div class="eyebrow">ACCIONES RÁPIDAS</div><h2>¿Qué querés hacer?</h2></div></div>
+      <div id="resume-card" class="resume-card hidden"><div class="resume-icon"><i data-icon="draft"></i></div><div class="resume-body"><div class="eyebrow">BORRADOR AUTOMÁTICO</div><h3>Continuar donde lo dejaste</h3><div id="resume-meta" class="resume-meta" role="list"><div id="resume-row-send" class="resume-row" role="listitem"><span id="resume-send-meta" class="resume-row-text"></span><button type="button" class="secondary small" data-go="send" id="resume-send" aria-label="Seguir en Enviar mensaje">Seguir</button></div><div id="resume-row-status" class="resume-row" role="listitem"><span id="resume-status-meta" class="resume-row-text"></span><button type="button" class="secondary small" data-go="status" id="resume-status" aria-label="Seguir en Estados">Seguir</button></div></div></div></div><div class="section-head"><div><div class="eyebrow">ACCIONES RÁPIDAS</div><h2>¿Qué querés hacer?</h2></div></div>
       <div class="quick-grid">
         <button class="quick" data-go="contacts" data-open-forms><b><i data-icon="addUser"></i></b><strong>Agregar clientes</strong><span>Cargar o importar contactos</span></button>
         <button class="quick" data-go="send"><b><i data-icon="send"></i></b><strong>Enviar promoción</strong><span>Texto, imagen o video</span></button>
         <button class="quick" data-go="status"><b><i data-icon="publish"></i></b><strong>Publicar un estado</strong><span>Compartir una novedad</span></button>
+        <button class="quick" data-go="history"><b><i data-icon="history"></i></b><strong>Ver historial</strong><span>Últimas operaciones</span></button>
+        <button class="quick" data-go="connection"><b><i data-icon="connection"></i></b><strong>Revisar WhatsApp</strong><span>Estado de la conexión</span></button>
       </div>
-      <div class="notice"><strong>Antes de enviar</strong><p>Usá este panel únicamente con personas que aceptaron recibir comunicaciones. Respetá las bajas y las políticas de WhatsApp. La conexión no oficial puede provocar restricciones en la cuenta.</p></div>
+      <details id="home-notice" class="notice" open><summary>Antes de enviar</summary><p>Usá este panel únicamente con personas que aceptaron recibir comunicaciones. Respetá las bajas y las políticas de WhatsApp. La conexión no oficial puede provocar restricciones en la cuenta.</p></details>
     </section>
 
     <section id="page-contacts" class="page hidden">
