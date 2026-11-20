@@ -118,8 +118,9 @@ Ahí viven la base SQLite, la clave (si no la definís por env) y los borradores
 - **Desvincular:** el botón **Desvincular** cierra la sesión de WhatsApp de la instancia (equivale a *logout*, **no borra** la instancia ni sus datos). Después podés volver a vincular con QR o con código de vinculación.
 
 ### 9. Copias de seguridad
-- Respaldá el volumen `promopanel-data` (o al menos `promopanel.db` + `data/.key`).
-- Guardá `ENCRYPTION_KEY` aparte: sin ella, los datos cifrados no se recuperan.
+- SQLite usa WAL: **pará el contenedor antes de copiar** (`docker stop <contenedor>`). Copiar solo `promopanel.db` mientras el panel está activo puede perder las últimas transacciones; el volumen `promopanel-data` incluye los tres archivos.
+- Si preferís copiar archivos, guardá juntos `promopanel.db`, `promopanel.db-wal`, `promopanel.db-shm` y la clave (`data/.key` si no usás `ENCRYPTION_KEY`). Si falta alguno de los tres de SQLite, el respaldo puede quedar incompleto.
+- Guardá `ENCRYPTION_KEY` aparte: sin ella, los datos cifrados no se recuperan. Si la rotás con datos ya guardados, el panel se niega a arrancar (y evita crear duplicados con índices distintos).
 
 ### Alternativa: recurso Docker Compose
 Si preferís usar el `docker-compose.yml`, creá un recurso **Docker Compose** apuntando a ese archivo. Vas a necesitar montar el volumen persistente en `/app/data` y cargar las mismas variables.

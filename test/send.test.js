@@ -25,7 +25,7 @@ test("la búsqueda de destinatarios incluye el DNI", () => {
 
 // 2, 3, 10: archivos en modo texto, límite en el front y confirm con el total real.
 test("el cliente no adjunta archivos cuando el tipo es texto", () => {
-  assert.match(app, /if\(isText\)\$\("#send-file"\)\.value="";/);
+  assert.match(app, /\$\("#send-file"\)\.value="";renderFilePreview\("send"\)/);
   assert.match(app, /const files=type==="text"\?\[\]:\[\.\.\.\$\("#send-file"\)\.files\]/);
   assert.match(app, /files\.forEach\(f=>fd\.append\("files",f\)\);/);
   const handler = app.match(/\$\("#send-button"\)\.onclick=[\s\S]*?\n\};/);

@@ -11,7 +11,19 @@ const { createStore, StoreError } = require("./lib/db");
 const { evoError, normalizeLinkNumber, connectResponse } = require("./lib/connection");
 
 const app = express();
-const PORT = Number(process.env.PORT || 3000);
+const APP_VERSION = require("./package.json").version;
+// Configuración numérica: un valor inválido debe impedir el arranque, no
+// convertirse en NaN y romper sesiones o límites en silencio.
+function envInt(name, fallback, min, max) {
+  const raw = process.env[name];
+  if (raw === undefined || String(raw).trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`Variable ${name} inválida: se esperaba un entero entre ${min} y ${max}.`);
+  }
+  return value;
+}
+const PORT = envInt("PORT", 3000, 1, 65535);
 const DATA = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, "data");
 fs.mkdirSync(DATA, { recursive: true });
 
@@ -21,7 +33,7 @@ fs.mkdirSync(DATA, { recursive: true });
 // ---------------------------------------------------------------------------
 const DEFAULT_COUNTRY = process.env.DEFAULT_COUNTRY || "AR";
 // Los QR de WhatsApp y los códigos de vinculación vencen en pocos minutos.
-const LINK_TTL_MS = Math.max(1000, Number(process.env.LINK_TTL_MS || 5 * 60 * 1000));
+const LINK_TTL_MS = envInt("LINK_TTL_MS", 5 * 60 * 1000, 1000, 6 * 60 * 60 * 1000);
 const store = createStore({
   dir: DATA,
   encryptionKey: process.env.ENCRYPTION_KEY,
@@ -34,10 +46,14 @@ if (migration.contacts || migration.history || migration.skipped) {
     `${migration.skipped ? ` (omitidos: ${migration.skipped})` : ""}.`
   );
 }
+// Con datos cifrados, una clave equivocada no es un aviso: es un panel roto
+// (lecturas 500 y duplicados por cambio de índice ciego). Mejor no arrancar.
+const ENCRYPTION_OK = !store.cipherEnabled || store.verifyDecryption();
 if (!store.cipherEnabled) {
   console.warn("[PromoPanel] Sin clave de cifrado: teléfono y DNI se guardan SIN cifrar. Definí ENCRYPTION_KEY.");
-} else if (!store.verifyDecryption()) {
-  console.error("[PromoPanel] ATENCIÓN: no puedo descifrar los datos con la clave actual. ¿Cambió ENCRYPTION_KEY? Los datos cifrados no se podrán leer.");
+} else if (!ENCRYPTION_OK) {
+  store.close();
+  throw new Error("No puedo descifrar los datos existentes con la clave actual. Restaurá la ENCRYPTION_KEY original (o data/.key).");
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,16 +77,16 @@ const configured = () => Boolean(config.url && config.key && config.instance);
 
 const PANEL_USER = process.env.PANEL_USER || "admin";
 const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "change-me-now";
-const SESSION_HOURS = Math.max(1, Number(process.env.SESSION_HOURS || 12));
-const SEND_DELAY_MS = Math.max(0, Number(process.env.SEND_DELAY_MS ?? 1500));
+const SESSION_HOURS = envInt("SESSION_HOURS", 12, 1, 720);
+const SEND_DELAY_MS = envInt("SEND_DELAY_MS", 1500, 0, 10 * 60 * 1000);
 // Pausa aleatoria: el retraso real es SEND_DELAY_MS + [0, SEND_DELAY_JITTER_MS].
-const SEND_DELAY_JITTER_MS = Math.max(0, Number(process.env.SEND_DELAY_JITTER_MS ?? 2500));
+const SEND_DELAY_JITTER_MS = envInt("SEND_DELAY_JITTER_MS", 2500, 0, 10 * 60 * 1000);
 // Cada SEND_BATCH_SIZE mensajes se hace un descanso más largo.
-const SEND_BATCH_SIZE = Math.max(0, Number(process.env.SEND_BATCH_SIZE || 20));
-const SEND_BATCH_PAUSE_MS = Math.max(0, Number(process.env.SEND_BATCH_PAUSE_MS || 60000));
-const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 25);
-const MAX_SEND_FILES = Math.max(1, Number(process.env.MAX_SEND_FILES || 10));
-const MAX_TOTAL_UPLOAD_MB = Number(process.env.MAX_TOTAL_UPLOAD_MB || 60);
+const SEND_BATCH_SIZE = envInt("SEND_BATCH_SIZE", 20, 0, 10000);
+const SEND_BATCH_PAUSE_MS = envInt("SEND_BATCH_PAUSE_MS", 60000, 0, 60 * 60 * 1000);
+const MAX_UPLOAD_MB = envInt("MAX_UPLOAD_MB", 25, 1, 250);
+const MAX_SEND_FILES = envInt("MAX_SEND_FILES", 10, 1, 50);
+const MAX_TOTAL_UPLOAD_MB = envInt("MAX_TOTAL_UPLOAD_MB", 60, 1, 500);
 
 // ---------------------------------------------------------------------------
 // Sesiones (token aleatorio validado contra un Map en memoria; logout real)
@@ -263,7 +279,15 @@ function loginPage(error) {
 </body></html>`;
 }
 
-app.get("/health", (req, res) => res.json({ status: "ok", configured: configured() }));
+app.get("/health", (req, res) => {
+  const dbOk = ENCRYPTION_OK && store.isHealthy();
+  res.status(dbOk ? 200 : 503).json({
+    status: dbOk ? "ok" : "error",
+    configured: configured(),
+    version: APP_VERSION,
+    dbOk
+  });
+});
 
 app.get("/login", (req, res) => {
   if (isAuthed(req)) return res.redirect("/");
@@ -297,12 +321,46 @@ app.post("/logout", (req, res) => {
 
 app.use(express.static(path.join(__dirname, "public")));
 
+// Almacenamiento en memoria con límite TOTAL mientras llegan los bytes: el
+// memoryStorage de multer solo conoce el límite por archivo y podría bufferear
+// cientos de MB antes de que podamos rechazar la suma de todos.
+const uploadTotals = new WeakMap();
+const limitedMemoryStorage = {
+  _handleFile(req, file, cb) {
+    const chunks = [];
+    let size = 0, done = false, failed = false;
+    const prior = uploadTotals.get(req) || 0;
+    const finish = (err, data) => { if (done) return; done = true; cb(err, data); };
+    file.stream.on("data", (chunk) => {
+      if (failed || done) return;
+      size += chunk.length;
+      if (prior + size > MAX_TOTAL_UPLOAD_MB * 1024 * 1024) {
+        failed = true;
+        finish(new multer.MulterError("LIMIT_TOTAL_SIZE", file.fieldname));
+        file.stream.resume(); // drenamos el resto sin guardarlo
+        return;
+      }
+      chunks.push(chunk);
+    });
+    file.stream.on("end", () => {
+      if (failed || done) return;
+      uploadTotals.set(req, prior + size);
+      finish(null, {
+        buffer: Buffer.concat(chunks, size), size,
+        encoding: file.encoding, mimetype: file.mimetype,
+        originalname: file.originalname, fieldname: file.fieldname
+      });
+    });
+    file.stream.on("error", (err) => finish(err));
+  },
+  _removeFile(req, file, cb) { cb(null); }
+};
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: limitedMemoryStorage,
   limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024, files: MAX_SEND_FILES }
 });
 
-// Suma de tamaños de los archivos subidos, para acotar el total en memoria.
+// Red de seguridad: la comprobación real ya ocurrió durante el streaming.
 const totalUploadBytes = (files) => (files || []).reduce((sum, f) => sum + (f.size || f.buffer?.length || 0), 0);
 
 // El mimetype lo declara el navegador, así que también revisamos la firma del
@@ -357,6 +415,17 @@ const idempotencyJobs = new Map();
 // primero envía; los demás esperan su turno.
 const sendQueue = [];
 let sendPumpActive = false;
+// Un despliegue o un reinicio no pueden dejar mensajes a medio enviar sin
+// registro: el flag se activa al recibir SIGTERM y el job se marca como error.
+let shuttingDown = false;
+const MAX_QUEUE_SIZE = 3;
+const MAX_NETWORK_FAILURES = 3;
+const NETWORK_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "EPIPE", "ECONNABORTED", "ERR_NETWORK", "EPROTO"]);
+function isNetworkFailure(err) {
+  if (!err) return false;
+  return NETWORK_CODES.has(String(err.code || "")) ||
+    (!err.response && /network|timeout/i.test(String(err.message || "")));
+}
 
 // Duración aproximada con los delays configurados. El front la usa para no
 // abandonar el seguimiento antes de que termine una campaña grande.
@@ -388,9 +457,14 @@ function recordResult(job, entry) {
   }
 }
 setInterval(() => {
-  // Se retiene más tiempo que el seguimiento del front para poder reanudarlo.
+  // Solo se descartan jobs ya terminados: borrar uno "running" haría que el
+  // frente reciba 404 y un reintento generara una segunda campaña.
   const cutoff = Date.now() - 6 * 3600 * 1000;
-  for (const [id, job] of jobs) if (new Date(job.createdAt).getTime() < cutoff) jobs.delete(id);
+  for (const [id, job] of jobs) {
+    if (job.status !== "done" && job.status !== "error") continue;
+    const finished = new Date(job.finishedAt || job.createdAt).getTime();
+    if (finished < cutoff) jobs.delete(id);
+  }
   for (const [key, jobId] of idempotencyJobs) if (!jobs.has(jobId)) idempotencyJobs.delete(key);
 }, 600 * 1000).unref();
 
@@ -416,6 +490,19 @@ async function runSendJob(job, { type, text, contacts, media }) {
     }
     outcomes.set(c.id, o);
   };
+  // Se escribe al terminar cada destinatario, no solo al final: si el proceso
+  // se reinicia a mitad de campaña, lo ya enviado queda en el historial.
+  const flushContact = (c) => {
+    if (!c) return;
+    const o = outcomes.get(c.id);
+    if (!o) return; // no se intentó enviar: no registramos actividad falsa
+    outcomes.delete(c.id);
+    addHistory({
+      kind: "chat", type, name: c.name, phone: c.phone, ok: o.ok,
+      error: o.errors.length ? o.errors.join(" | ") : undefined
+    });
+  };
+  let networkFailures = 0, aborted = false, current = null;
   try {
     const api = evoClient();
     // Una unidad por cada mensaje a enviar: con texto es una por cliente; con
@@ -427,6 +514,14 @@ async function runSendJob(job, { type, text, contacts, media }) {
     }
     for (let i = 0; i < units.length; i++) {
       const { c, media: m, caption } = units[i];
+      if (current && current.id !== c.id) flushContact(current);
+      current = c;
+      if (shuttingDown) {
+        aborted = true;
+        job.status = "error";
+        job.error = "El servidor se detuvo durante el envío.";
+        break;
+      }
       try {
         let endpoint, payload;
         if (type === "text") {
@@ -437,32 +532,34 @@ async function runSendJob(job, { type, text, contacts, media }) {
           payload = { number: c.phone, mediatype: type, mimetype: m.mime, caption, media: m.base64, fileName: m.fileName };
         }
         await api.post(endpoint, payload);
+        networkFailures = 0;
         job.sent++;
         recordResult(job, { name: c.name, phone: c.phone, ok: true });
         mark(c, true);
       } catch (err) {
         const error = evoError(err);
+        networkFailures = isNetworkFailure(err) ? networkFailures + 1 : 0;
         job.failed++;
         recordResult(job, { name: c.name, phone: c.phone, ok: false, error });
         mark(c, false, error);
+        if (networkFailures >= MAX_NETWORK_FAILURES) {
+          aborted = true;
+          job.status = "error";
+          job.error = `No se pudo contactar con Evolution API tras ${MAX_NETWORK_FAILURES} intentos. Se detuvo el envío para evitar fallos en cadena.`;
+        }
       }
       job.processed = i + 1;
+      if (aborted) break;
       const wait = nextSendDelay(i, units.length);
       if (wait) await sleep(wait);
     }
-    job.status = "done";
+    flushContact(current);
+    if (!aborted) job.status = "done";
   } catch (e) {
     job.status = "error";
     job.error = evoError(e);
   } finally {
-    for (const c of contacts) {
-      const o = outcomes.get(c.id);
-      if (!o) continue; // no se intentó enviar: no registramos actividad falsa
-      addHistory({
-        kind: "chat", type, name: c.name, phone: c.phone, ok: o.ok,
-        error: o.errors.length ? o.errors.join(" | ") : undefined
-      });
-    }
+    for (const c of contacts) flushContact(c);
     job.finishedAt = new Date().toISOString();
   }
 }
@@ -731,6 +828,13 @@ app.post("/api/send", upload.array("files", MAX_SEND_FILES), (req, res) => {
       }
     }
 
+    // Tope de cola: evita acumular campañas que nadie va a esperar y que
+    // seguirían ocupando la instancia de WhatsApp durante horas.
+    const pendingJobs = sendQueue.length + (sendPumpActive ? 1 : 0);
+    if (pendingJobs >= MAX_QUEUE_SIZE) {
+      return res.status(429).json({ error: `Hay ${pendingJobs} envíos en curso o en cola. Esperá a que terminen antes de enviar otro.` });
+    }
+
     let media = [];
     if (type !== "text") {
       if (totalUploadBytes(files) > MAX_TOTAL_UPLOAD_MB * 1024 * 1024) {
@@ -865,6 +969,9 @@ app.use("/api", (req, res) => res.status(404).json({ error: "Recurso no encontra
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_TOTAL_SIZE") {
+      return res.status(413).json({ error: `El total de archivos supera el límite de ${MAX_TOTAL_UPLOAD_MB} MB.` });
+    }
     const message = err.code === "LIMIT_FILE_SIZE"
       ? `El archivo supera el límite de ${MAX_UPLOAD_MB} MB.`
       : err.code === "LIMIT_FILE_COUNT"
@@ -883,12 +990,38 @@ app.use((err, req, res, next) => {
 // ---------------------------------------------------------------------------
 function warnConfig() {
   if (!configured()) console.warn("[PromoPanel] Evolution API incompleta: revisá EVOLUTION_URL, EVOLUTION_API_KEY y EVOLUTION_INSTANCE en .env");
-  if (!process.env.PANEL_PASSWORD) console.warn("[PromoPanel] Usando contraseña por defecto. Configurá PANEL_PASSWORD en .env antes de exponer el panel.");
+  if (!process.env.PANEL_PASSWORD || PANEL_PASSWORD === "change-me-now") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("PANEL_PASSWORD no configurada: definila antes de iniciar el panel en producción.");
+    }
+    console.warn("[PromoPanel] Usando contraseña por defecto. Configurá PANEL_PASSWORD en .env antes de exponer el panel.");
+  }
+}
+
+function installShutdown(server) {
+  const stop = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    sendQueue.length = 0;
+    for (const job of jobs.values()) {
+      if (job.status === "running" || job.status === "queued") {
+        job.status = "error";
+        job.error = "El servidor se detuvo durante el envío.";
+        job.finishedAt = new Date().toISOString();
+      }
+    }
+    const done = () => { store.close(); process.exit(0); };
+    server.close(done);
+    setTimeout(done, 5000).unref();
+  };
+  process.once("SIGTERM", stop);
+  process.once("SIGINT", stop);
 }
 
 if (require.main === module) {
   warnConfig();
-  app.listen(PORT, () => console.log(`PromoPanel Lite escuchando en puerto ${PORT}`));
+  const server = app.listen(PORT, () => console.log(`PromoPanel Lite escuchando en puerto ${PORT}`));
+  installShutdown(server);
 }
 
 // Exponer el store permite a los tests cerrar SQLite antes de borrar su

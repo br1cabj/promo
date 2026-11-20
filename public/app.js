@@ -23,6 +23,9 @@ let connectionWatch = null;
 let connectionPollTick = 0;
 let linkKind = null;           // "qr" | "pairing"
 let linkExpiresAt = 0;
+// Contador por recurso: una respuesta lenta nunca debe pisar una consulta más
+// reciente (típico al cambiar de página rápido o al reconectar).
+let connectionSeq = 0, historySeq = 0, contactsSeq = 0;
 let historyRows = [];          // se filtra en el navegador, sin recargar la API
 let historyTotal = 0;          // lo ajusta /api/summary
 let historyLimit = 150;
@@ -66,7 +69,7 @@ function showPage(name){
   if(drawerWasOpen){const h=$("#page-title");if(h){h.setAttribute("tabindex","-1");h.focus({preventScroll:true})}}
   if(name==="contacts")refreshContacts();
   if(name==="send")renderRecipients();
-  if(name==="history")loadHistory();
+  if(name==="history"){loadSummary();loadHistory()}
   if(name==="connection")loadConnection();else stopConnectionWatch();
 }
 $$(".nav").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));
@@ -115,14 +118,19 @@ async function loadContacts(){contacts=await request("/api/contacts");pruneSelec
 // Quita de la selección los contactos que ya no existen o perdieron la
 // autorización: así el contador y el confirm coinciden con lo que envía el API.
 function pruneSelected(){const valid=new Set(contacts.filter(c=>c.optIn).map(c=>c.id));for(const id of [...selectedRecipients])if(!valid.has(id))selectedRecipients.delete(id)}
-async function refreshContacts(){try{
-  await loadContacts();
-  // Con la agenda vacía el alta tiene que estar a la vista. Se decide después
-  // de cargar (no antes) y una sola vez, para no reabrir lo que el usuario plegó.
-  const forms=$("#contact-forms");
-  if(forms&&!contacts.length&&!contactFormsAutoOpened){forms.open=true;contactFormsAutoOpened=true}
-  renderContacts();updateSelected();
-}catch(e){toast(e.message)}}
+async function refreshContacts(){
+  const seq=++contactsSeq;
+  try{
+    const list=await request("/api/contacts");
+    if(seq!==contactsSeq)return;
+    contacts=list;pruneSelected();
+    // Con la agenda vacía el alta tiene que estar a la vista. Se decide después
+    // de cargar (no antes) y una sola vez, para no reabrir lo que el usuario plegó.
+    const forms=$("#contact-forms");
+    if(forms&&!contacts.length&&!contactFormsAutoOpened){forms.open=true;contactFormsAutoOpened=true}
+    renderContacts();updateSelected();
+  }catch(e){if(seq===contactsSeq)toast(e.message)}
+}
 // El número guardado sigue siendo el canónico de WhatsApp: esto solo lo hace
 // legible en pantalla y también entra en la búsqueda con o sin espacios.
 function formatPhoneDisplay(phone){
@@ -304,6 +312,12 @@ attachFormatting();
 const DRAFT_FIELDS={send:{text:"#send-text",type:"#send-type"},status:{text:"#status-text",type:"#status-type"}};
 const DRAFT_TYPE_LABEL={text:"Texto",image:"Imagen",video:"Video"};
 const draftTimers={};
+// Un PUT en vuelo, otro pendiente y una generación que cambia con cada edición:
+// así el texto que gana siempre es el que hay en el textarea en ese momento.
+const draftSaving={send:false,status:false};
+const draftPending={send:false,status:false};
+const draftDirty={send:false,status:false};
+const draftGeneration={send:0,status:0};
 const lastDraftSavedAt={send:null,status:null};
 let applyingDraft=false;
 function draftTime(iso){if(!iso)return "";const d=new Date(iso);return Number.isNaN(d.getTime())?"":d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
@@ -371,9 +385,15 @@ function draftPayload(section){const f=DRAFT_FIELDS[section];return{text:$(f.tex
 async function saveDraftNow(section,{silent=false}={}){
   if(applyingDraft)return null;
   clearTimeout(draftTimers[section]);delete draftTimers[section];
+  // Un solo PUT por sección: dos en paralelo podían persistir el texto viejo.
+  if(draftSaving[section]){draftPending[section]=true;return null}
+  draftSaving[section]=true;
+  const generation=draftGeneration[section];
   if(!silent)paintDraft(section,{message:"Guardando…"});
   try{
     const r=await request("/api/drafts/"+section,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(draftPayload(section))});
+    // Si el usuario siguió escribiendo, este resultado ya es viejo: gana el DOM actual.
+    if(generation!==draftGeneration[section]){draftPending[section]=true;return null}
     if(r.cleared){
       lastDraftSavedAt[section]=null;
       paintDraft(section,{message:"Sin borrador. Escribí y se guarda automáticamente."});
@@ -383,15 +403,27 @@ async function saveDraftNow(section,{silent=false}={}){
     }
     return r;
   }catch(e){
-    paintDraft(section,{message:"No se pudo guardar. Revisá tu conexión.",retry:true});
+    if(generation===draftGeneration[section])paintDraft(section,{message:"No se pudo guardar. Revisá tu conexión.",retry:true});
     return null;
+  }finally{
+    draftSaving[section]=false;
+    if(draftPending[section]){draftPending[section]=false;saveDraftNow(section,{silent:true})}
   }
 }
-function scheduleDraftSave(section){if(applyingDraft)return;paintDraft(section,{message:"Guardando…"});clearTimeout(draftTimers[section]);draftTimers[section]=setTimeout(()=>saveDraftNow(section),800)}
+function scheduleDraftSave(section){
+  if(applyingDraft)return;
+  draftDirty[section]=true;draftGeneration[section]++;
+  paintDraft(section,{message:"Guardando…"});
+  clearTimeout(draftTimers[section]);draftTimers[section]=setTimeout(()=>saveDraftNow(section),800)
+}
 function flushDrafts(){for(const section of Object.keys(draftTimers)){clearTimeout(draftTimers[section]);delete draftTimers[section];try{fetch("/api/drafts/"+section,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(draftPayload(section)),keepalive:true})}catch{}}}
 function applyDraft(section,draft,{restored=false}={}){
   const f=DRAFT_FIELDS[section];if(!f)return;
-  clearTimeout(draftTimers[section]);delete draftTimers[section];applyingDraft=true;
+  // En red lenta el usuario puede escribir antes de que llegue el GET: su texto manda.
+  if(draftDirty[section])return;
+  clearTimeout(draftTimers[section]);delete draftTimers[section];
+  draftGeneration[section]++;
+  applyingDraft=true;
   try{
     const ta=$(f.text);if(ta){ta.value=draft.text||"";ta.dispatchEvent(new Event("input"))}
     const sel=$(f.type);if(sel){sel.value=["text","image","video"].includes(draft.type)?draft.type:"text";sel.dispatchEvent(new Event("change"))}
@@ -399,13 +431,15 @@ function applyDraft(section,draft,{restored=false}={}){
     const has=!!(draft.text||(draft.recipientIds&&draft.recipientIds.length));
     lastDraftSavedAt[section]=has?(draft.updatedAt||null):null;
     paintDraft(section,{message:restored?(has?"Borrador recuperado de otra sesión":"Sin borrador. Escribí y se guarda automáticamente."):(has?"Borrador listo para seguir":"Sin borrador. Escribí y se guarda automáticamente."),saved:has,meta:draftMetaText(section,draft)});
-  }finally{applyingDraft=false}
+  }finally{applyingDraft=false;draftDirty[section]=false}
 }
 async function loadDrafts(){try{const list=await request("/api/drafts");list.forEach(d=>applyDraft(d.section,d,{restored:true}))}catch{}}
 async function clearDraft(section){
   const f=DRAFT_FIELDS[section];if(!f)return;
   if(!await askConfirm("¿Descartar el borrador y limpiar el formulario?",{title:"Descartar borrador",acceptLabel:"Descartar",danger:true}))return;
-  clearTimeout(draftTimers[section]);delete draftTimers[section];applyingDraft=true;
+  clearTimeout(draftTimers[section]);delete draftTimers[section];
+  draftGeneration[section]++;draftPending[section]=false;
+  applyingDraft=true;draftDirty[section]=false;
   try{
     const ta=$(f.text);if(ta){ta.value="";ta.dispatchEvent(new Event("input"))}
     const sel=$(f.type);if(sel){sel.value="text";sel.dispatchEvent(new Event("change"))}
@@ -510,7 +544,7 @@ function renderFilePreview(which){
 }
 $("#send-file").onchange=()=>renderFilePreview("send");
 $("#status-file").onchange=()=>renderFilePreview("status");
-$("#send-type").onchange=()=>{const isText=$("#send-type").value==="text";$("#send-file-wrap").classList.toggle("hidden",isText);$("#send-file").accept=$("#send-type").value==="video"?"video/mp4":"image/*";if(isText)$("#send-file").value="";renderFilePreview("send");$("#send-text").dispatchEvent(new Event("input"))};
+$("#send-type").onchange=()=>{const isText=$("#send-type").value==="text";$("#send-file-wrap").classList.toggle("hidden",isText);$("#send-file").accept=$("#send-type").value==="video"?"video/mp4":"image/*";$("#send-file").value="";renderFilePreview("send");$("#send-text").dispatchEvent(new Event("input"))};
 function formatDuration(ms){const mins=Math.max(1,Math.ceil(ms/60000));return mins>=60?`${Math.floor(mins/60)} h ${mins%60} min`:`${mins} min`}
 function saveLastJob(job){try{localStorage.setItem(LAST_JOB_KEY,JSON.stringify(job))}catch{}}
 function loadLastJob(){try{const raw=localStorage.getItem(LAST_JOB_KEY);return raw?JSON.parse(raw):null}catch{return null}}
@@ -548,7 +582,9 @@ function renderJobProgress(j,message){
   box.innerHTML=`<div class="job-head"><span class="job-message">${esc(message)}</span>${eta?`<span class="job-eta">${esc(eta)}</span>`:""}</div><div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Progreso del envío"><div class="progress-bar" style="width:${pct}%"></div></div><div class="progress-meta">${esc(meta)}</div>`;
 }
 async function resetSendComposer(){
-  applyingDraft=true;
+  clearTimeout(draftTimers.send);delete draftTimers.send;
+  draftGeneration.send++;draftPending.send=false;
+  applyingDraft=true;draftDirty.send=false;
   try{
     const f=DRAFT_FIELDS.send;
     const text=$(f.text)?.value||"";
@@ -570,7 +606,7 @@ async function resetSendComposer(){
     }
   }catch(e){
     // El resultado del envío no debe fallar porque no se pudo actualizar el borrador.
-  }finally{applyingDraft=false}
+  }finally{applyingDraft=false;draftDirty.send=false}
 }
 async function monitorJob(jobId,total,estimatedMs=0){
   if(monitoringJob)return null;
@@ -663,7 +699,7 @@ $("#track-job").onclick=async()=>{
   $("#send-result").classList.remove("hidden");
   await monitorJob(activeJob.jobId,activeJob.total,activeJob.estimatedMs);
 };
-$("#status-type").onchange=()=>{const isText=$("#status-type").value==="text";$("#status-file-wrap").classList.toggle("hidden",isText);$("#status-file").accept=$("#status-type").value==="video"?"video/mp4":"image/*";if(isText)$("#status-file").value="";renderFilePreview("status");$("#status-text").dispatchEvent(new Event("input"))};
+$("#status-type").onchange=()=>{const isText=$("#status-type").value==="text";$("#status-file-wrap").classList.toggle("hidden",isText);$("#status-file").accept=$("#status-type").value==="video"?"video/mp4":"image/*";$("#status-file").value="";renderFilePreview("status");$("#status-text").dispatchEvent(new Event("input"))};
 $("#status-button").onclick=async()=>{
   const type=$("#status-type").value,file=$("#status-file").files[0];
   if(type!=="text"&&!file)return toast("Adjuntá una imagen o video para el estado.");
@@ -697,6 +733,7 @@ function historyDetail(x,kind){
   return `<span class="history-detail"><strong>${esc(x.name||"Actividad de conexión")}</strong>${error}</span>`;
 }
 async function loadHistory(append=false){
+  const seq=++historySeq;
   const btn=$("#history-refresh"),more=$("#history-more"),summary=$("#history-summary");
   if(btn)btn.disabled=true;
   if(more&&append)more.disabled=true;
@@ -706,15 +743,19 @@ async function loadHistory(append=false){
     // listHistory(limit) devuelve los últimos N registros (no un offset):
     // al pedir un limit mayor ya vienen los anteriores, así que reemplazamos.
     const rows=await request("/api/history?limit="+nextLimit);
+    if(seq!==historySeq)return;
     historyRows=rows;
     historyLimit=nextLimit;
     renderHistory();
   }catch(e){
+    if(seq!==historySeq)return;
     if(summary)summary.textContent="No se pudo cargar el historial.";
     toast(e.message);
   }finally{
-    if(btn)btn.disabled=false;
-    if(more)more.disabled=false;
+    if(seq===historySeq){
+      if(btn)btn.disabled=false;
+      if(more)more.disabled=false;
+    }
   }
 }
 // La fecha completa se mantiene accesible: en celular se oculta visualmente y
@@ -824,8 +865,14 @@ function applyConnection(r,{silent=false}={}){
   return connected;
 }
 async function loadConnection({silent=false}={}){
-  try{const r=await request("/api/connection");updateSendConnection(r);return applyConnection(r,{silent})}
+  const seq=++connectionSeq;
+  try{
+    const r=await request("/api/connection");
+    if(seq!==connectionSeq)return false;
+    updateSendConnection(r);return applyConnection(r,{silent})
+  }
   catch(e){
+    if(seq!==connectionSeq)return false;
     $("#connection-title").textContent="No se pudo consultar";
     $("#connection-detail").textContent=e.message;
     $("#connection-account").classList.add("hidden");

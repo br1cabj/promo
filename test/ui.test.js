@@ -42,11 +42,13 @@ test("3. el ritmo mostrado sale de la configuración real del servidor", () => {
   assert.ok(app.includes("updatePaceHint()"));
 });
 
-test("4. cambiar a Texto en Estados descarta el archivo anterior", () => {
+test("4. cambiar el tipo en Estados descarta el archivo anterior", () => {
   const handler = app.match(/\$\("#status-type"\)\.onchange=[^\n]*/);
   assert.ok(handler, "falta el handler de #status-type");
-  assert.ok(handler[0].includes('if(isText)$("#status-file").value=""'));
+  assert.ok(handler[0].includes('$("#status-file").value=""'), "se limpia al pasar a texto, imagen o video");
   assert.ok(handler[0].includes('renderFilePreview("status")'));
+  const sendHandler = app.match(/\$\("#send-type"\)\.onchange=[^\n]*/);
+  assert.ok(sendHandler[0].includes('$("#send-file").value=""'), "lo mismo en Enviar");
 });
 
 test("5. el seguimiento muestra barra, ETA y los destinatarios fallidos", () => {
