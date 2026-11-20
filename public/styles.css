@@ -41,8 +41,6 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
 .resume-body p{font-size:12px;margin:0 0 10px;line-height:1.5}
 .resume-actions{display:flex;flex-wrap:wrap;gap:8px}
 .secondary.small{font-size:11px;padding:8px 11px;min-height:36px}
-.secondary.danger{background:#fbeceb;color:#b4483f}
-.secondary.danger:hover{background:#f6dedb}
 .draft-box{display:flex;align-items:flex-start;gap:12px;margin:-4px 0 14px;padding:12px 14px;border:1px solid #cfe0d6;border-radius:10px;background:#f8fbf9}
 .draft-box.saved{border-color:#bfe0cd;background:#f3faf5}
 .draft-box.error{border-color:#e6c4c4;background:#fdf6f6}
@@ -70,7 +68,6 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
   .sidebar nav{display:grid;gap:6px}
   .nav{min-height:50px;padding:12px 13px;gap:13px}
   .nav svg{width:20px;height:20px}
-  .nav span{font-size:14px}
   .nav-overlay{display:block}
   .nav-overlay.open{opacity:1;pointer-events:auto}
   main{width:100%;padding:calc(14px + env(safe-area-inset-top)) 15px calc(24px + env(safe-area-inset-bottom))}
@@ -94,7 +91,6 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
   .quick{padding:14px;display:grid;grid-template-columns:38px 1fr;column-gap:10px}
   .quick b{grid-row:span 2;margin:0}
   .quick span{margin:0}
-  .two-col{grid-template-columns:1fr}
   .section-head h2{font-size:19px}
   .table-title{align-items:flex-start;gap:10px;flex-direction:column}
   .table-title input{max-width:none;width:100%}
@@ -107,7 +103,7 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
 .logout-form{display:inline;margin:0}.logout-link{background:none;border:0;padding:0 0 0 4px;color:var(--green);font:inherit;font-weight:750;cursor:pointer}.logout-link:hover{text-decoration:underline}
 .modal{position:fixed;inset:0;background:rgba(16,37,29,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20}.modal-card{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:21px;width:100%;max-width:420px;max-height:90vh;overflow:auto}.modal-card h3{font-size:15px;margin:0 0 16px}.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
 .format-toolbar{display:flex;flex-wrap:wrap;gap:4px;margin:-6px 0 10px}.format-toolbar button{border:1px solid #dfe7e2;background:#fff;border-radius:6px;padding:5px 8px;font:inherit;font-size:11px;font-weight:700;color:#4b5a52;cursor:pointer;min-width:30px;line-height:1}.format-toolbar button:hover{border-color:#67ae89;color:var(--green);background:var(--pale)}.format-preview{border:1px dashed #cfe0d6;background:#f8fbf9;border-radius:8px;padding:10px 12px;font-size:13px;color:#2c3a33;margin:-4px 0 13px;min-height:38px}.format-preview .empty{height:8px}.format-preview .muted{color:var(--muted);font-size:12px}.format-preview code{background:#e8f4ee;border-radius:4px;padding:1px 4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.format-preview blockquote{margin:4px 0;padding-left:10px;border-left:3px solid #9ac9af;color:#5c6b63}.format-preview ul,.format-preview ol{margin:4px 0;padding-left:20px}
-.format-toolbar button:disabled,.primary:disabled,.secondary:disabled{opacity:.55;cursor:not-allowed}
+.primary:disabled,.secondary:disabled{opacity:.55;cursor:not-allowed}
 .emoji-wrap{position:relative;display:inline-block}
 .emoji-panel{position:absolute;top:calc(100% + 6px);left:0;z-index:15;width:min(300px,calc(100vw - 56px));max-height:240px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 34px rgba(23,45,34,.18);padding:8px}
 .emoji-group-title{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:#819087;font-weight:800;margin:8px 4px 4px}
@@ -212,7 +208,5 @@ main{width:calc(100% - 238px);max-width:1500px;margin:0 auto;padding:30px 42px 1
   .resume-card{padding:14px;gap:10px}
   .resume-actions{flex-direction:column}
   .resume-actions .secondary{width:100%}
-  .history-date-full{display:none}
-  .history-date-short{display:inline}
 }
 

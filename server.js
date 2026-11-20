@@ -8,7 +8,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { parse } = require("csv-parse/sync");
 const { createStore, StoreError } = require("./lib/db");
-const { evoError, extractQr, normalizeLinkNumber, connectResponse } = require("./lib/connection");
+const { evoError, normalizeLinkNumber, connectResponse } = require("./lib/connection");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -44,7 +44,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const cut = (value, max) => String(value ?? "").trim().slice(0, max);
 // Límites reales de WhatsApp/Evolution: 4096 para texto y 1024 para pies de
 // imagen/video. Los borradores y plantillas usan el mismo tope en lib/db.js.
-const MAX_NAME = 120, MAX_TEXT = 4096, MAX_CAPTION = 1024;
+const MAX_TEXT = 4096, MAX_CAPTION = 1024;
 // Los resultados se entregan al front en cada poll: acotamos el array para que
 // una campaña grande no serialice decenas de miles de objetos por respuesta.
 const MAX_JOB_RESULTS = 500;

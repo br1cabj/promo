@@ -13,12 +13,12 @@ const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
 
 test("1. borrador y plantillas quedan arriba del toolbar, cerrado por defecto", () => {
   assert.equal((html.match(/class="draft-box" data-draft-for="(send|status)"/g) || []).length, 2);
-  assert.equal((html.match(/class="template-box" data-template-box="(send|status)"/g) || []).length, 2);
+  assert.equal((html.match(/class="template-box"/g) || []).length, 2);
   const send = html.slice(html.indexOf('<div class="card"><h3>1. Contenido</h3>'), html.indexOf('<div class="card"><h3>2. Destinatarios</h3>'));
   const status = html.slice(html.indexOf('<div class="card narrow">'), html.indexOf("id=\"status-result\""));
   for (const [name, card, sec] of [["Enviar", send, "send"], ["Estados", status, "status"]]) {
     const draft = card.indexOf('data-draft-for="' + sec + '"');
-    const templates = card.indexOf('data-template-box="' + sec + '"');
+    const templates = card.indexOf('class="template-box"');
     const format = card.indexOf("format-details");
     const preview = card.indexOf("format-preview");
     assert.ok(draft >= 0 && templates > draft && format > templates && preview > format, name + ": orden " + [draft, templates, format, preview]);

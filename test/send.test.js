@@ -38,7 +38,6 @@ test("el cliente no adjunta archivos cuando el tipo es texto", () => {
 test("el seguimiento es reanudable, tolera fallos y no muestra éxito falso", () => {
   assert.match(app, /let activeJob = null/);
   assert.match(app, /let monitoringJob = false/);
-  assert.match(app, /let pendingSendKey = null/);
   assert.match(app, /async function monitorJob\(/);
   assert.match(app, /const deadline=Date\.now\(\)\+Math\.max\(30\*60\*1000,Number\(estimatedMs\|\|0\)\+10\*60\*1000\)/);
   assert.match(app, /errors\+\+;\s*\n\s*delay=Math\.min\(delay\*2,15000\)/);
@@ -66,9 +65,9 @@ test("el servidor valida firma de archivos, límite de cantidad e idempotencia",
 test("la clave de idempotencia depende del contenido, no del último intento", () => {
   assert.match(app, /function campaignKey\(type, text, ids, files\)/);
   assert.match(app, /const key=campaignKey\(type,\$\("#send-text"\)\.value,ids,files\)/);
-  assert.ok(!/const key=pendingSendKey\|\|/.test(app), "no debe reutilizar una clave vieja");
-  assert.equal((app.match(/pendingSendKey=null/g) || []).length, 4,
-    "debe limpiarse al terminar, al fallar el sondeo, al expirar y al limpiar el composer");
+  assert.ok(!app.includes("pendingSendKey"), "no debe quedar una clave pendiente reutilizable");
+  assert.equal((app.match(/const key=campaignKey\(type/g) || []).length, 1,
+    "la clave se calcula una sola vez por envío");
 });
 
 test("el front muestra el estado en cola y sigue sondeando", () => {

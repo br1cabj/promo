@@ -17,7 +17,6 @@ const MAX_TEXT = 4096, MAX_CAPTION = 1024;
 let maxSendFiles = 10;
 let activeJob = null;          // último job enviado, para poder reanudar el seguimiento
 let monitoringJob = false;
-let pendingSendKey = null;     // idempotencia: reutilizar si se pierde la respuesta
 let linkTtlMs = 5 * 60 * 1000; // lo ajusta /api/summary
 let connectionWatch = null;
 let connectionPollTick = 0;
@@ -345,14 +344,14 @@ function renderTemplates(sec){
   const items=templateCache[sec]||[];
   list.innerHTML=items.map(t=>{
     const active=selectedTemplate[sec]===t.id;
-    return '<div class="template-item'+(active?" active":"")+'" data-template-id="'+esc(t.id)+'">'+
-      '<button type="button" class="template-use" data-template-list="'+sec+'" data-template-action="use" data-id="'+esc(t.id)+'">'+
+    return '<div class="template-item'+(active?" active":"")+'">'+
+      '<button type="button" class="template-use" data-template-action="use" data-id="'+esc(t.id)+'">'+
       '<strong>'+esc(t.name)+'</strong><span class="template-snippet">'+esc(templateSnippet(t.text))+'</span>'+
       (active?'<span class="template-inuse">En uso</span>':"")+'</button>'+
       '<span class="template-actions">'+
-      '<button type="button" class="small-btn" data-template-list="'+sec+'" data-template-action="rename" data-id="'+esc(t.id)+'">Renombrar</button>'+
-      '<button type="button" class="small-btn" data-template-list="'+sec+'" data-template-action="update" data-id="'+esc(t.id)+'">Actualizar</button>'+
-      '<button type="button" class="small-btn danger" data-template-list="'+sec+'" data-template-action="delete" data-id="'+esc(t.id)+'">Eliminar</button>'+
+      '<button type="button" class="small-btn" data-template-action="rename" data-id="'+esc(t.id)+'">Renombrar</button>'+
+      '<button type="button" class="small-btn" data-template-action="update" data-id="'+esc(t.id)+'">Actualizar</button>'+
+      '<button type="button" class="small-btn danger" data-template-action="delete" data-id="'+esc(t.id)+'">Eliminar</button>'+
       '</span></div>';
   }).join("");
   const count=document.querySelector('[data-template-count="'+sec+'"]');if(count)count.textContent=items.length?"("+items.length+")":"";
@@ -483,7 +482,7 @@ async function resetSendComposer(){
     }
   }catch(e){
     // El resultado del envío no debe fallar porque no se pudo actualizar el borrador.
-  }finally{pendingSendKey=null;applyingDraft=false}
+  }finally{applyingDraft=false}
 }
 async function monitorJob(jobId,total,estimatedMs=0){
   if(monitoringJob)return null;
@@ -507,7 +506,7 @@ async function monitorJob(jobId,total,estimatedMs=0){
       box.classList.add("error");
       box.textContent=`No se pudo consultar el estado (${e.message}). Reintentando...`;
       if(errors>=6){
-        monitoringJob=false;pendingSendKey=null;
+        monitoringJob=false;
         box.textContent="No se pudo confirmar el estado del envío. Usá \"Ver estado del último envío\" para reintentar.";
         return null;
       }
@@ -524,13 +523,13 @@ async function monitorJob(jobId,total,estimatedMs=0){
       renderJobProgress(j,`Procesando ${j.processed}/${j.total} · Enviados: ${j.sent} · Fallidos: ${j.failed}`);
       continue;
     }
-    monitoringJob=false;pendingSendKey=null;
+    monitoringJob=false;
     await resetSendComposer();
     showJobResult(j);
     loadSummary();
     return j;
   }
-  monitoringJob=false;pendingSendKey=null;
+  monitoringJob=false;
   box.classList.add("error");
   box.textContent="El envío sigue en curso. Podés seguir consultando con \"Ver estado del último envío\".";
   return null;
@@ -554,7 +553,6 @@ $("#send-button").onclick=async()=>{
   files.forEach(f=>fd.append("files",f));
   const b=$("#send-button"),box=$("#send-result");
   const key=campaignKey(type,$("#send-text").value,ids,files);
-  pendingSendKey=key;
   b.disabled=true;b.textContent="Enviando...";
   box.classList.remove("hidden","error");box.textContent="Preparando el envío...";
   try{

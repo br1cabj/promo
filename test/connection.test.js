@@ -43,7 +43,7 @@ test("el endpoint no reenvía el payload crudo de Evolution", () => {
 });
 
 test("los errores amigables vienen del módulo compartido", () => {
-  assert.match(server, /const \{ evoError, extractQr, normalizeLinkNumber, connectResponse \} = require\("\.\/lib\/connection"\)/);
+  assert.match(server, /const \{ evoError, normalizeLinkNumber, connectResponse \} = require\("\.\/lib\/connection"\)/);
 });
 
 test("sin configuración el front avisa y no sugiere vincular", () => {
