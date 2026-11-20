@@ -23,6 +23,9 @@ let connectionPollTick = 0;
 let linkKind = null;           // "qr" | "pairing"
 let linkExpiresAt = 0;
 let historyRows = [];          // se filtra en el navegador, sin recargar la API
+let historyTotal = 0;          // lo ajusta /api/summary
+let historyLimit = 150;
+const HISTORY_PAGE_SIZE = 150;
 let sendConfig = {             // lo ajusta /api/summary
   sendDelayMs: 1500, sendDelayJitterMs: 2500,
   sendBatchSize: 20, sendBatchPauseMs: 60000
@@ -88,7 +91,7 @@ function closeNav(restoreFocus=false){
 $("#menu-button").onclick=()=>{if($(".sidebar").classList.contains("open"))closeNav(true);else openNav()};
 $("#sidebar-close").onclick=()=>closeNav(true);
 $("#nav-overlay").onclick=()=>closeNav(true);
-async function loadSummary(){try{const s=await request("/api/summary");$("#stat-total").textContent=s.total;$("#stat-optin").textContent=s.optedIn;$("#stat-history").textContent=s.history;if(Number(s.maxSendFiles)>0)maxSendFiles=Number(s.maxSendFiles);if(Number(s.linkTtlMs)>0)linkTtlMs=Number(s.linkTtlMs);sendConfig={sendDelayMs:Number(s.sendDelayMs)||1500,sendDelayJitterMs:Number(s.sendDelayJitterMs)||0,sendBatchSize:Number(s.sendBatchSize)||0,sendBatchPauseMs:Number(s.sendBatchPauseMs)||0};updatePaceHint()}catch(e){toast(e.message)}}
+async function loadSummary(){try{const s=await request("/api/summary");$("#stat-total").textContent=s.total;$("#stat-optin").textContent=s.optedIn;$("#stat-history").textContent=s.history;historyTotal=Number(s.history)||0;if(!$("#page-history").classList.contains("hidden"))renderHistory();if(Number(s.maxSendFiles)>0)maxSendFiles=Number(s.maxSendFiles);if(Number(s.linkTtlMs)>0)linkTtlMs=Number(s.linkTtlMs);sendConfig={sendDelayMs:Number(s.sendDelayMs)||1500,sendDelayJitterMs:Number(s.sendDelayJitterMs)||0,sendBatchSize:Number(s.sendBatchSize)||0,sendBatchPauseMs:Number(s.sendBatchPauseMs)||0};updatePaceHint()}catch(e){toast(e.message)}}
 // Mostrar el ritmo real evita que una campaña larga parezca colgada.
 function updatePaceHint(){
   const {sendDelayMs,sendDelayJitterMs,sendBatchSize,sendBatchPauseMs}=sendConfig;
@@ -588,14 +591,55 @@ $("#status-button").onclick=async()=>{
   try{await request("/api/status",{method:"POST",body:fd});$("#status-file").value="";renderFilePreview("status");$("#status-result").classList.remove("hidden","error");$("#status-result").textContent="Solicitud de publicación enviada a WhatsApp.";toast("Estado enviado")}catch(e){$("#status-result").classList.remove("hidden");$("#status-result").classList.add("error");$("#status-result").textContent=e.message}finally{b.disabled=false;b.textContent="Publicar estado"}
 };
 function historyKind(x){return x.kind==="chat"?"message":x.kind||"message"}
-async function loadHistory(){try{historyRows=await request("/api/history");renderHistory()}catch(e){toast(e.message)}}
-// En celular mostramos día/hora cortos; el valor completo sigue disponible en el tooltip y para lectores de pantalla.
+function historyKindLabel(kind){return kind==="message"?"Mensaje":kind==="status"?"Estado":"Conexión"}
+function historyTypeLabel(kind,type){
+  const t=String(type||"").toLowerCase();
+  if(kind==="connection")return ({qr:"QR",pairing:"Código de vinculación",disconnect:"Desvinculación"})[t]||"Conexión";
+  return ({text:"Texto",image:"Imagen",video:"Video"})[t]||"Registro";
+}
+function historyStatus(x){
+  if(x.ok===true)return{pill:"yes",label:"Procesado"};
+  if(x.ok===false)return{pill:"no",label:"Error"};
+  return{pill:"",label:"Registrado"};
+}
+function historyDetail(x,kind){
+  const error=x.error?`<span class="history-error">${esc(x.error)}</span>`:"";
+  if(kind==="message"){
+    const phone=x.phone?`<small>${esc(x.phone)}</small>`:"";
+    return `<span class="history-detail"><strong>${esc(x.name||"Cliente")}</strong>${phone}${error}</span>`;
+  }
+  if(kind==="status")return `<span class="history-detail"><strong>Publicación de estado</strong><small>Cuenta conectada</small>${error}</span>`;
+  return `<span class="history-detail"><strong>${esc(x.name||"Actividad de conexión")}</strong>${error}</span>`;
+}
+async function loadHistory(append=false){
+  const btn=$("#history-refresh"),more=$("#history-more"),summary=$("#history-summary");
+  if(btn)btn.disabled=true;
+  if(more&&append)more.disabled=true;
+  if(!append&&summary)summary.textContent="Cargando historial...";
+  try{
+    const nextLimit=append?historyLimit+HISTORY_PAGE_SIZE:HISTORY_PAGE_SIZE;
+    // listHistory(limit) devuelve los últimos N registros (no un offset):
+    // al pedir un limit mayor ya vienen los anteriores, así que reemplazamos.
+    const rows=await request("/api/history?limit="+nextLimit);
+    historyRows=rows;
+    historyLimit=nextLimit;
+    renderHistory();
+  }catch(e){
+    if(summary)summary.textContent="No se pudo cargar el historial.";
+    toast(e.message);
+  }finally{
+    if(btn)btn.disabled=false;
+    if(more)more.disabled=false;
+  }
+}
+// La fecha completa se mantiene accesible: en celular se oculta visualmente y
+// la corta se marca aria-hidden para que los lectores no lean dos veces lo mismo.
 function historyDate(at){
   const d=new Date(at),valid=!Number.isNaN(d.getTime());
   const iso=valid?d.toISOString():String(at??"");
   const full=valid?d.toLocaleString():iso;
   const short=valid?d.toLocaleString(undefined,{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):iso;
-  return `<time class="history-date-full" datetime="${esc(iso)}" title="${esc(full)}">${esc(full)}</time><time class="history-date-short" datetime="${esc(iso)}" title="${esc(full)}">${esc(short)}</time>`;
+  return `<time class="history-date-full" datetime="${esc(iso)}" title="${esc(full)}">${esc(full)}</time><time class="history-date-short" datetime="${esc(iso)}" title="${esc(full)}" aria-hidden="true">${esc(short)}</time>`;
 }
 function renderHistory(){
   const q=($("#history-search").value||"").toLowerCase().trim();
@@ -603,17 +647,35 @@ function renderHistory(){
   const rows=historyRows.filter(x=>{
     const k=historyKind(x);
     if(kind&&k!==kind)return false;
-    if(result==="ok"&&!x.ok)return false;
-    if(result==="error"&&x.ok)return false;
+    if(result==="ok"&&x.ok!==true)return false;
+    if(result==="error"&&x.ok!==false)return false;
     if(!q)return true;
-    const label=k==="message"?"Mensaje":k==="status"?"Estado":"Conexión";
-    return [label,x.type,x.name,x.phone,x.error,new Date(x.at).toLocaleString()].join(" ").toLowerCase().includes(q);
+    const haystack=[historyKindLabel(k),historyTypeLabel(k,x.type),x.type,x.name,x.phone,x.error,new Date(x.at).toLocaleString()].join(" ");
+    return haystack.toLowerCase().includes(q);
   });
-  $("#history-body").innerHTML=rows.map(x=>`<tr><td data-label="Fecha">${historyDate(x.at)}</td><td data-label="Acción">${x.kind==="status"?"Estado":x.kind==="connection"?"Conexión":"Mensaje"} · ${esc(x.type||"")}</td><td data-label="Cliente / resultado">${esc(x.name||x.phone||"Publicación de estado")}</td><td data-label="Estado"><span class="pill ${x.ok?"yes":"no"}">${x.ok?"Procesado":"Error"}</span></td></tr>`).join("")||(historyRows.length?'<tr><td colspan="4">Ningún registro coincide con los filtros.</td></tr>':'<tr><td colspan="4">Todavía no hay actividad.</td></tr>');
+  const summary=$("#history-summary");
+  if(summary){
+    const total=historyTotal||historyRows.length;
+    summary.textContent=historyRows.length
+      ? `Mostrando ${rows.length} de ${total} registros${rows.length!==historyRows.length?" (filtrados)":""}.`
+      : "Todavía no hay actividad.";
+  }
+  const more=$("#history-more");
+  if(more){
+    const remaining=Math.max(0,(historyTotal||0)-historyRows.length);
+    more.classList.toggle("hidden",remaining<=0);
+    more.textContent=`Cargar más registros (${Math.min(HISTORY_PAGE_SIZE,remaining)})`;
+  }
+  $("#history-body").innerHTML=rows.map(x=>{
+    const k=historyKind(x),st=historyStatus(x),type=historyTypeLabel(k,x.type);
+    return `<tr><td data-label="Fecha">${historyDate(x.at)}</td><td data-label="Acción">${historyKindLabel(k)} · ${esc(type)}</td><td data-label="Detalle">${historyDetail(x,k)}</td><td data-label="Estado"><span class="pill${st.pill?" "+st.pill:""}">${st.label}</span></td></tr>`;
+  }).join("")||(historyRows.length?'<tr><td colspan="4">Ningún registro coincide con los filtros.</td></tr>':'<tr><td colspan="4">Todavía no hay actividad.</td></tr>');
 }
 $("#history-search").addEventListener("input",renderHistory);
 $("#history-kind").addEventListener("change",renderHistory);
 $("#history-result").addEventListener("change",renderHistory);
+$("#history-refresh").addEventListener("click",()=>{loadSummary();loadHistory()});
+$("#history-more").addEventListener("click",()=>loadHistory(true));
 function formatOwner(owner){const d=String(owner||"").replace(/\D/g,"");return d?"+"+d:""}
 function hideLinkBoxes(){
   const qr=$("#qr-box"),pair=$("#pairing-box");

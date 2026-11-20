@@ -61,13 +61,17 @@ test("5. el toolbar de formato arranca cerrado en escritorio y en celular", () =
   assert.ok(css.includes(".format-details>summary{"));
 });
 
-test("6. el historial muestra fecha corta en celular y completa en escritorio", () => {
+test("6. el historial muestra fecha corta en celular sin ocultar la completa a lectores", () => {
   assert.ok(app.includes('class="history-date-full"'));
   assert.ok(app.includes('class="history-date-short"'));
+  assert.ok(app.includes('class="history-date-short" datetime="${esc(iso)}" title="${esc(full)}" aria-hidden="true"'));
   assert.ok(app.includes("historyDate(x.at)"));
   assert.ok(app.includes('day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"'));
-  assert.ok(css.includes(".history-date-full{display:none}"));
+  assert.ok(!css.includes(".history-date-full{display:none}"));
+  assert.ok(css.includes(".history-date-full{position:absolute;width:1px;height:1px"));
   assert.ok(css.includes(".history-date-short{display:inline}"));
+  assert.ok(css.includes("@media(max-width:900px){\n  #page-history .table-title{flex-direction:column;align-items:stretch;gap:12px}"));
+  assert.ok(css.includes(".history-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))"));
 });
 
 test("7. los campos y modales se adaptan al teclado y al área segura", () => {

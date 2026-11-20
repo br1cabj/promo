@@ -142,4 +142,9 @@ test("solo una campaña envía a la vez, se informa el puesto y un fallo no bloq
   assert.equal(events.length, 4);
   assert.ok(events.slice(0, 2).every((e) => e.text === "FAIL"), "el job fallido intentó primero");
   assert.ok(events.slice(2).every((e) => e.text === "OK"), "el job siguiente envió después");
+
+  const firstPage = await api("/api/history?limit=1");
+  assert.equal(firstPage.length, 1, "el historial respeta el límite pedido");
+  const fullHistory = await api("/api/history?limit=500");
+  assert.equal(fullHistory.length, 8, "se registró un resultado por destinatario");
 });

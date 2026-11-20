@@ -81,18 +81,34 @@ test("7. la confirmación muestra texto, miniaturas y aviso del pie", () => {
   assert.ok(css.includes(".confirm-thumbs img{"));
 });
 
-test("8. el historial se filtra por texto, tipo y resultado", () => {
+test("8. el historial se filtra, explica el resultado y puede cargar más", () => {
   assert.ok(html.includes('id="history-search"'));
   assert.ok(html.includes('id="history-kind"'));
   assert.ok(html.includes('id="history-result"'));
+  assert.ok(html.includes('id="history-refresh"'));
+  assert.ok(html.includes('id="history-summary"'));
+  assert.ok(html.includes('id="history-more"'));
+  assert.ok(html.includes('role="status" aria-live="polite"'));
+  assert.ok(html.includes("<th>Detalle</th>"));
   assert.ok(app.includes("let historyRows = []"));
+  assert.ok(app.includes("let historyTotal = 0"));
+  assert.ok(app.includes("const HISTORY_PAGE_SIZE = 150"));
   assert.ok(app.includes("function renderHistory()"));
   assert.ok(app.includes('if(kind&&k!==kind)return false'));
-  assert.ok(app.includes('if(result==="ok"&&!x.ok)return false'));
-  assert.ok(app.includes('if(result==="error"&&x.ok)return false'));
-  assert.ok(app.includes('historyKind(x)'));
+  assert.ok(app.includes('if(result==="ok"&&x.ok!==true)return false'));
+  assert.ok(app.includes('if(result==="error"&&x.ok!==false)return false'));
+  assert.ok(app.includes("historyKind(x)"));
+  assert.ok(app.includes("historyTypeLabel(kind,type)"));
+  assert.ok(app.includes("Código de vinculación"));
+  assert.ok(app.includes("Desvinculación"));
+  assert.ok(app.includes('class="history-error"'));
+  assert.ok(app.includes('label:"Registrado"'));
+  assert.ok(app.includes("Mostrando ${rows.length} de ${total} registros"));
+  assert.ok(app.includes('request("/api/history?limit="+nextLimit)'));
   assert.ok(app.includes('Ningún registro coincide con los filtros.'));
   assert.ok(css.includes(".history-tools select{"));
+  assert.ok(css.includes(".history-error{"));
+  assert.ok(css.includes(".history-detail strong{"));
 });
 
 test("accesibilidad: resultado anunciable y navegación con aria-current", () => {

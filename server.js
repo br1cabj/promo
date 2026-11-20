@@ -804,7 +804,7 @@ app.post("/api/status", upload.single("file"), async (req, res) => {
   }
 });
 
-app.get("/api/history", (req, res) => res.json(store.listHistory(150)));
+app.get("/api/history", (req, res) => res.json(store.listHistory(req.query.limit)));
 
 // Borradores de redacción (texto, tipo y destinatarios). Persisten en el
 // servidor, así están disponibles desde cualquier equipo o el celular.

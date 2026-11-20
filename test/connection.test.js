@@ -73,7 +73,7 @@ test("los botones se deshabilitan y se registra la auditoría", () => {
   assert.match(app, /\}\s*finally\{button\.disabled=false;button\.textContent=original\}/);
   assert.match(server, /kind: "connection"/);
   assert.match(server, /type: "disconnect", name: "Número desvinculado"/);
-  assert.match(app, /x\.kind==="connection"\?"Conexión"/);
+  assert.match(app, /function historyKindLabel\(kind\)\{return kind==="message"\?"Mensaje":kind==="status"\?"Estado":"Conexión"\}/);
 });
 
 test("los confirms nativos se reemplazan por un modal accesible", () => {
