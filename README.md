@@ -225,7 +225,7 @@ Los símbolos del toolbar de formato (`N`, `C`, `S`, `{ }`, `❝`, listas) sigue
 - Edición de contactos (nombre, teléfono, DNI y autorización) desde la interfaz.
 - Formato de texto estilo WhatsApp (negrita, cursiva, tachado, monoespaciado, citas y listas) con vista previa en vivo y selector de emojis compatibles.
 - Borradores de redacción guardados en el servidor, disponibles desde cualquier equipo (texto, tipo y destinatarios; sin adjuntos).
-- Inicio de sesión con cookie de sesión (`HttpOnly`, `SameSite=Strict`) y cierre de sesión.
+- Inicio de sesión con cookie de sesión (`HttpOnly`, `SameSite=Strict`, `Secure` sobre HTTPS) y cierre de sesión; la pantalla de ingreso cubre error de credenciales, origen no permitido y límite de intentos.
 - Envío de campañas en segundo plano con progreso en vivo; la petición HTTP responde al instante.
 - Límite de intentos de acceso y de solicitudes a la API para mitigar abuso.
 - Cabeceras de seguridad (CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, HSTS sobre HTTPS) y `Cache-Control: no-store` en la API.
@@ -235,6 +235,7 @@ Los símbolos del toolbar de formato (`N`, `C`, `S`, `{ }`, `❝`, listas) sigue
 
 - No es un CRM completo ni una plataforma multiusuario.
 - Los datos se guardan en SQLite dentro de `data/`; hacé backup de esa carpeta (y de la clave de cifrado).
+- Las sesiones del panel viven en memoria y duran `SESSION_HOURS` (12 h por defecto): al reiniciar el contenedor hay que volver a ingresar.
 - Los trabajos de envío viven en memoria: si el servidor se reinicia durante una campaña, el progreso en curso se pierde (lo ya enviado queda en el historial). No hay reintentos automáticos.
 - Entre envíos se aplica una pausa **aleatoria** (`SEND_DELAY_MS` + jitter) y un descanso largo cada `SEND_BATCH_SIZE` mensajes, para reducir el riesgo de bloqueos y no enviar con un patrón constante. Por eso una campaña grande tarda proporcionalmente.
 - El estado se publica para la audiencia que permita la privacidad del WhatsApp conectado; no es un envío individual a cada cliente.
@@ -269,8 +270,8 @@ Documentación de referencia:
 
 ## Seguridad y mantenimiento
 
-- Cambiá la contraseña de ejemplo antes de publicar.
-- Usá HTTPS y restringí el acceso al panel. Las cookies se marcan `Secure` automáticamente detrás de HTTPS.
+- Definí `PANEL_PASSWORD` antes de publicar: en producción (`NODE_ENV=production`) el panel no arranca si falta o si sigue en `change-me-now`.
+- Usá HTTPS y restringí el acceso al panel. La cookie se marca `Secure` y se activa HSTS solo cuando HTTPS es efectivo: detrás de un proxy inverso dejá `TRUST_PROXY=true`; con `false`, se ignora el encabezado `X-Forwarded-Proto` que envía el cliente.
 - No subas `.env` a GitHub (ya está en `.gitignore` y `.dockerignore`).
 - Protegé el VPS y hacé copias de seguridad periódicas de `data/` (base de datos y clave de cifrado).
 - Guardá la clave de cifrado (`ENCRYPTION_KEY` o `data/.key`) en un lugar seguro y fuera de los respaldos en la nube si querés que el cifrado sea realmente útil: quien tenga la clave y la base puede descifrar los datos.

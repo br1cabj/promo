@@ -18,6 +18,7 @@ function setupEnv({ dataDir, evoUrl, extra = {} }) {
     ENCRYPTION_KEY: KEY,
     PANEL_USER: "admin",
     PANEL_PASSWORD: "testpass123",
+    TRUST_PROXY: "false",
     EVOLUTION_URL: evoUrl,
     EVOLUTION_API_KEY: "mockkey",
     EVOLUTION_INSTANCE: "promociones",
@@ -134,6 +135,60 @@ test("rutas HTTP: health, auth, CSRF, CSV, estados, connect, idempotencia y stre
     assert.equal(r.status, 401);
   });
 
+  await t.test("credenciales incorrectas muestran el error en la pantalla de ingreso", async () => {
+    const r = await fetch(base + "/login", {
+      method: "POST", redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "user=admin&password=incorrecta"
+    });
+    assert.equal(r.status, 302);
+    assert.equal(r.headers.get("location"), "/login?error=1");
+    const page = await (await fetch(base + r.headers.get("location"))).text();
+    assert.match(page, /Usuario o contraseña incorrectos/);
+    assert.doesNotMatch(page, /✦/, "la pantalla usa la marca local, no un glifo suelto");
+    assert.match(page, /favicon\.svg/);
+    assert.match(page, /viewport-fit=cover/);
+  });
+
+  await t.test("el guard CSRF cubre también el formulario de ingreso", async () => {
+    const r = await fetch(base + "/login", {
+      method: "POST", redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "http://malicioso.test" },
+      body: "user=admin&password=incorrecta"
+    });
+    assert.equal(r.status, 403);
+    assert.match(r.headers.get("content-type"), /text\/html/);
+    assert.match(await r.text(), /No se pudo validar el origen/);
+  });
+
+  await t.test("sin trust proxy, X-Forwarded-Proto no activa Secure ni HSTS", async () => {
+    const r = await fetch(base + "/login", {
+      method: "POST", redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-Proto": "https" },
+      body: "user=admin&password=testpass123"
+    });
+    assert.equal(r.status, 302);
+    const setCookie = r.headers.get("set-cookie");
+    assert.match(setCookie, /HttpOnly/);
+    assert.doesNotMatch(setCookie, /;\s*Secure/);
+    assert.equal(r.headers.get("strict-transport-security"), null);
+  });
+
+  await t.test("logout destruye la sesión", async () => {
+    const login = await fetch(base + "/login", {
+      method: "POST", redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "user=admin&password=testpass123"
+    });
+    const freshCookie = login.headers.get("set-cookie").split(";")[0];
+    const out = await fetch(base + "/logout", { method: "POST", redirect: "manual", headers: { Cookie: freshCookie } });
+    assert.equal(out.status, 302);
+    assert.equal(out.headers.get("location"), "/login");
+    assert.match(out.headers.get("set-cookie"), /Max-Age=0/);
+    const after = await fetch(base + "/api/contacts", { headers: { Cookie: freshCookie } });
+    assert.equal(after.status, 401);
+  });
+
   await t.test("un Origin ajeno se rechaza con 403", async () => {
     const r = await fetch(base + "/api/contacts", {
       method: "POST",
@@ -144,16 +199,17 @@ test("rutas HTTP: health, auth, CSRF, CSV, estados, connect, idempotencia y stre
   });
 
   await t.test("el limitador de login corta los intentos repetidos", async () => {
-    let last = 200;
+    let last;
     for (let i = 0; i < 11; i++) {
-      const r = await fetch(base + "/login", {
+      last = await fetch(base + "/login", {
         method: "POST", redirect: "manual",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: "user=admin&password=incorrecta"
       });
-      last = r.status;
     }
-    assert.equal(last, 429);
+    assert.equal(last.status, 429);
+    assert.match(last.headers.get("content-type"), /text\/html/, "sigue siendo la pantalla de ingreso");
+    assert.match(await last.text(), /Demasiados intentos de acceso/);
   });
 
   let contact;

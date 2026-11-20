@@ -11,6 +11,7 @@ const app = read("public/app.js");
 const css = read("public/styles.css");
 const icons = read("public/icons.js");
 const buildIcons = read("scripts/build-icons.js");
+const serverSrc = read("server.js");
 const pkg = JSON.parse(read("package.json"));
 
 test("1. Lucide está como devDependency y el sprite se genera desde el paquete", () => {
@@ -39,10 +40,13 @@ test("2. los iconos son locales: sin CDN, sin webfonts y sin script remoto", () 
   assert.match(icons, /aria-hidden="true"/);
 });
 
-test("3. los glifos sueltos desaparecen de la chrome de la app", () => {
+test("3. los glifos sueltos desaparecen de la chrome de la app y del login", () => {
   for (const glyph of ["✦", "＋", "➤", "◉", "👤", "😀"]) {
     assert.ok(!html.includes(glyph), `queda el glifo ${glyph} en el HTML`);
+    assert.ok(!serverSrc.includes(glyph), `queda el glifo ${glyph} en el login`);
   }
+  assert.match(serverSrc, /<img src="\/favicon\.svg" alt="">/, "el login usa la marca auto-hospedada");
+  assert.match(serverSrc, /viewport-fit=cover/, "el login respeta isla, notch y punch-hole");
   assert.ok(!app.includes('ebtn.textContent="😀"'), "el botón de emojis usa el icono");
   assert.ok(app.includes('ebtn.innerHTML=iconSvg("smile")'));
   // El selector de emojis y el toolbar son contenido, no chrome: se conservan.

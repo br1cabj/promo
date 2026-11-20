@@ -75,6 +75,7 @@ const config = {
 };
 const configured = () => Boolean(config.url && config.key && config.instance);
 
+const TRUST_PROXY = process.env.TRUST_PROXY === "true";
 const PANEL_USER = process.env.PANEL_USER || "admin";
 const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "change-me-now";
 const SESSION_HOURS = envInt("SESSION_HOURS", 12, 1, 720);
@@ -123,7 +124,9 @@ function parseCookies(header) {
   return out;
 }
 function isSecureRequest(req) {
-  return req.secure || req.get("x-forwarded-proto") === "https";
+  // Sin trust proxy, X-Forwarded-Proto lo escribe el cliente: no debe activar
+  // Secure/HSTS ni dejar una cookie que el navegador ignora en HTTP.
+  return TRUST_PROXY ? Boolean(req.secure || req.get("x-forwarded-proto") === "https") : Boolean(req.secure);
 }
 function setSessionCookie(res, req, token) {
   const parts = [
@@ -155,7 +158,7 @@ function safeEqual(a, b) {
 // ---------------------------------------------------------------------------
 // Limitador de tasa en memoria
 // ---------------------------------------------------------------------------
-function rateLimiter({ windowMs, max, message }) {
+function rateLimiter({ windowMs, max, message, onLimit }) {
   const hits = new Map();
   setInterval(() => {
     const now = Date.now();
@@ -170,7 +173,10 @@ function rateLimiter({ windowMs, max, message }) {
     const fresh = (hits.get(key) || []).filter((t) => now - t < windowMs);
     fresh.push(now);
     hits.set(key, fresh);
-    if (fresh.length > max) return res.status(429).json({ error: message || "Demasiadas solicitudes. Probá de nuevo en un momento." });
+    if (fresh.length > max) {
+      if (onLimit) return onLimit(req, res, message);
+      return res.status(429).json({ error: message || "Demasiadas solicitudes. Probá de nuevo en un momento." });
+    }
     next();
   };
 }
@@ -179,7 +185,7 @@ function rateLimiter({ windowMs, max, message }) {
 // Middlewares base
 // ---------------------------------------------------------------------------
 app.disable("x-powered-by");
-app.set("trust proxy", process.env.TRUST_PROXY === "true");
+app.set("trust proxy", TRUST_PROXY);
 
 // Cabeceras de seguridad (defensa en profundidad).
 app.use((req, res, next) => {
@@ -237,6 +243,12 @@ function csrfGuard(req, res, next) {
     xForwardedProto: req.get("x-forwarded-proto"),
     publicUrl: process.env.PUBLIC_URL || null
   }));
+  // El login y el logout son formularios, no API: les mostramos la pantalla de
+  // ingreso con un aviso en vez de un JSON suelto.
+  if (!req.path.startsWith("/api/")) {
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(403).type("html").send(loginPage("csrf"));
+  }
   return res.status(403).json({ error: "Origen no permitido." });
 }
 
@@ -246,18 +258,34 @@ function requireAuth(req, res, next) {
   return res.redirect("/login");
 }
 
-const loginLimiter = rateLimiter({ windowMs: 15 * 60 * 1000, max: 10, message: "Demasiados intentos de acceso. Esperá unos minutos." });
+const loginLimiter = rateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: "Demasiados intentos de acceso. Esperá unos minutos.",
+  // Es un formulario: mejor devolver la pantalla de ingreso con el aviso.
+  onLimit: (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(429).type("html").send(loginPage("rate"));
+  }
+});
 const apiLimiter = rateLimiter({ windowMs: 60 * 1000, max: 600 });
 
 // ---------------------------------------------------------------------------
 // Autenticación
 // ---------------------------------------------------------------------------
+const LOGIN_ERRORS = {
+  "1": "Usuario o contraseña incorrectos.",
+  rate: "Demasiados intentos de acceso. Esperá unos minutos y volvé a probar.",
+  csrf: "No se pudo validar el origen de la solicitud. Recargá la página e intentá de nuevo."
+};
 function loginPage(error) {
+  // Solo se usan claves conocidas: el querystring nunca se interpola en el HTML.
+  const message = LOGIN_ERRORS[String(error || "")] || "";
   return `<!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Ingresar · PromoPanel Lite</title>
 <style>
-  *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#10251d;font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color:#17231f}
+  *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#10251d;font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color:#17231f;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
   form{background:#fff;border-radius:16px;padding:34px 32px;width:min(360px,90vw);box-shadow:0 20px 60px rgba(0,0,0,.35)}
   h1{margin:0 0 4px;font-size:20px;letter-spacing:-.4px}p.sub{margin:0 0 22px;color:#718078;font-size:13px}
   label{display:block;font-size:12px;font-weight:650;color:#4b5a52;margin-bottom:13px}
@@ -265,13 +293,13 @@ function loginPage(error) {
   input:focus{border-color:#67ae89;box-shadow:0 0 0 3px #167c5514}
   button{width:100%;margin-top:6px;border:0;border-radius:8px;padding:12px;background:#167c55;color:#fff;font:inherit;font-weight:750;cursor:pointer}
   button:hover{background:#0d6543}.error{background:#fdecec;color:#a13a3a;border-radius:8px;padding:10px 12px;font-size:12px;margin-bottom:16px}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:800;margin-bottom:20px}.mark{display:grid;place-items:center;background:#1d8a5e;width:34px;height:34px;border-radius:10px;color:#fff;font-size:20px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;margin-bottom:20px}.mark{display:grid;place-items:center;background:#1d8a5e;width:34px;height:34px;border-radius:10px}.mark img{width:22px;height:22px;display:block}
 </style></head>
 <body>
   <form method="post" action="/login" autocomplete="on">
-    <div class="brand"><span class="mark">✦</span><span>PromoPanel <small>LITE</small></span></div>
+    <div class="brand"><span class="mark"><img src="/favicon.svg" alt=""></span><span>PromoPanel <small>LITE</small></span></div>
     <h1>Panel privado</h1><p class="sub">Ingresá con tus credenciales.</p>
-    ${error ? '<div class="error">Usuario o contraseña incorrectos.</div>' : ""}
+    ${message ? `<div class="error">${message}</div>` : ""}
     <label>Usuario<input name="user" autocomplete="username" required></label>
     <label>Contraseña<input type="password" name="password" autocomplete="current-password" required></label>
     <button type="submit">Ingresar</button>
@@ -288,6 +316,9 @@ app.get("/health", (req, res) => {
     dbOk
   });
 });
+
+// El guard cubre también el formulario de ingreso (login-CSRF) y el logout.
+app.use(csrfGuard);
 
 app.get("/login", (req, res) => {
   if (isAuthed(req)) return res.redirect("/");
@@ -309,7 +340,6 @@ app.post("/login", loginLimiter, (req, res) => {
 // A partir de acá todo requiere sesión
 // ---------------------------------------------------------------------------
 app.use(requireAuth);
-app.use(csrfGuard);
 app.use(apiLimiter);
 
 // Logout por POST (evita el logout-CSRF de un simple <img src="/logout">).
