@@ -58,6 +58,7 @@ function showPage(name){
   $("#page-"+name).classList.remove("hidden");
   $$(".nav").forEach(b=>{const active=b.dataset.page===name;b.classList.toggle("active",active);if(active)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});
   $("#page-title").textContent=({home:"Inicio",contacts:"Clientes",send:"Enviar mensaje",status:"Estados",history:"Historial",connection:"WhatsApp"})[name];
+  if(name==="home")updateResumeCard();
   window.scrollTo(0,0);
   if(drawerWasOpen){const h=$("#page-title");if(h){h.setAttribute("tabindex","-1");h.focus({preventScroll:true})}}
   if(name==="contacts")refreshContacts();
@@ -156,11 +157,12 @@ function closeConfirm(result){
   if(resolve)resolve(!!result);
 }
 // Modal propio para pedir el nombre de una plantilla, sin diálogo nativo.
-function askText({title="Nombre de la plantilla",message="",value="",acceptLabel="Guardar"}={}){
+function askText({title="Nombre de la plantilla",message="",value="",acceptLabel="Guardar",preview=""}={}){
   if(templateResolver)return Promise.resolve(null);
   const modal=$("#template-modal");
   $("#template-modal-title").textContent=title;
   $("#template-modal-message").textContent=message;
+  const p=$("#template-modal-preview");if(p){p.textContent=preview||"";p.classList.toggle("hidden",!preview)}
   const input=$("#template-name");
   input.value=value||"";
   $("#template-accept").textContent=acceptLabel;
@@ -219,11 +221,8 @@ function closeEmojiPanels(){$$(".emoji-panel").forEach(p=>p.classList.add("hidde
 function attachFormatting(){$$(".format-toolbar").forEach(tb=>{const ta=document.getElementById(tb.dataset.formatTarget);if(!ta)return;const preview=document.querySelector('[data-preview-for="'+tb.dataset.formatTarget+'"]');const counter=document.querySelector('[data-count-for="'+tb.dataset.formatTarget+'"]');const typeSel=document.getElementById(tb.dataset.formatTarget==="send-text"?"send-type":"status-type");const update=()=>{if(preview)preview.innerHTML=ta.value.trim()?renderWhatsApp(ta.value):'<span class="muted">La vista previa aparecerá acá a medida que escribas.</span>';if(counter){const n=ta.value.length;const isText=!!(typeSel&&typeSel.value==="text");const max=isText?MAX_TEXT:MAX_CAPTION;counter.textContent=n+" / "+max+" caracteres"+(n>max?" · supera el límite para "+(isText?"mensajes de texto":"imágenes y videos"):"");counter.classList.toggle("warn",n>max)}};tb.querySelectorAll("button[data-fmt]").forEach(btn=>{btn.setAttribute("aria-label",btn.title||btn.textContent);btn.onclick=()=>{applyFormat(ta,btn.dataset.fmt);ta.dispatchEvent(new Event("input"));update()}});const wrap=document.createElement("span");wrap.className="emoji-wrap";const ebtn=document.createElement("button");ebtn.type="button";ebtn.className="emoji-btn";ebtn.title="Insertar emoji";ebtn.setAttribute("aria-label","Insertar emoji");ebtn.innerHTML=iconSvg("smile");const panel=document.createElement("div");panel.className="emoji-panel hidden";EMOJI_GROUPS.forEach(g=>{const t=document.createElement("div");t.className="emoji-group-title";t.textContent=g.name;panel.appendChild(t);const grid=document.createElement("div");grid.className="emoji-grid";g.items.forEach(e=>{const b=document.createElement("button");b.type="button";b.className="emoji-item";b.textContent=e;b.setAttribute("aria-label","Emoji "+e);b.onclick=()=>{insertAtCursor(ta,e);ta.dispatchEvent(new Event("input"));update();if(window.matchMedia("(max-width:650px)").matches)closeEmojiPanels()};grid.appendChild(b)});panel.appendChild(grid)});ebtn.onclick=ev=>{ev.stopPropagation();const open=!panel.classList.contains("hidden");closeEmojiPanels();if(!open)panel.classList.remove("hidden")};document.addEventListener("click",ev=>{if(!wrap.contains(ev.target))panel.classList.add("hidden")});wrap.appendChild(ebtn);wrap.appendChild(panel);tb.appendChild(wrap);ta.addEventListener("input",update);update()})}
 document.addEventListener("keydown",ev=>{if(ev.key==="Escape"){closeEmojiPanels();closeEdit();closeConfirm(false);closeTemplate(false);closeNav(true)}trapModalFocus(ev)});
 attachFormatting();
-// El toolbar de formato se colapsa en celular y se abre en pantallas grandes.
-const mobileLayout=window.matchMedia("(max-width:650px)");
-function syncFormatDetails(){$$(".format-details").forEach(d=>{d.open=!mobileLayout.matches})}
-syncFormatDetails();
-mobileLayout.addEventListener("change",syncFormatDetails);
+// El toolbar empieza cerrado en todas las pantallas: así el borrador y las
+// plantillas quedan visibles sin hacer scroll.
 // --- Borradores de redacción (se guardan en el servidor) --------------------
 // El borrador vive en el servidor (SQLite), así está disponible desde la PC y
 // el celular. Guardamos texto, tipo y destinatarios; nunca imágenes ni videos.
@@ -232,7 +231,7 @@ const DRAFT_TYPE_LABEL={text:"Texto",image:"Imagen",video:"Video"};
 const draftTimers={};
 const lastDraftSavedAt={send:null,status:null};
 let applyingDraft=false;
-function draftTime(iso){if(!iso)return "—";const d=new Date(iso);return Number.isNaN(d.getTime())?"—":d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
+function draftTime(iso){if(!iso)return "";const d=new Date(iso);return Number.isNaN(d.getTime())?"":d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
 function draftMetaText(section,draft){
   const parts=[];
   if(draft.text)parts.push("Texto");
@@ -248,15 +247,38 @@ function paintDraft(section,{message,saved=false,updatedAt=null,meta="",retry=fa
   const status=box.querySelector('[data-draft-status="'+section+'"]');
   const time=box.querySelector('[data-draft-time="'+section+'"]');
   const metaEl=box.querySelector('[data-draft-meta="'+section+'"]');
+  const noteEl=box.querySelector('[data-draft-note="'+section+'"]');
   const retryBtn=box.querySelector('[data-draft-retry="'+section+'"]');
   const discard=box.querySelector('[data-draft-clear="'+section+'"]');
   if(status)status.textContent=message;
-  if(time)time.textContent=draftTime(updatedAt||lastDraftSavedAt[section]);
+  const when=draftTime(updatedAt||lastDraftSavedAt[section]);
+  if(time){time.textContent=when;time.classList.toggle("hidden",!when)}
   if(metaEl){metaEl.textContent=meta;metaEl.classList.toggle("hidden",!meta)}
+  if(noteEl){const f=DRAFT_FIELDS[section];const type=$(f.type)?.value||"text";noteEl.classList.toggle("hidden",type==="text")}
   if(retryBtn)retryBtn.classList.toggle("hidden",!retry);
-  if(discard)discard.disabled=!hasDraftContent(section);
+  const has=hasDraftContent(section);
+  if(discard){discard.classList.toggle("hidden",!has);discard.disabled=!has}
   box.classList.toggle("saved",!!saved);
   box.classList.toggle("error",!!retry);
+  updateDraftBadges();
+  updateResumeCard();
+}
+function updateDraftBadges(){
+  ["send","status"].forEach(sec=>{const b=document.querySelector('[data-draft-badge="'+sec+'"]');if(b)b.classList.toggle("hidden",!hasDraftContent(sec))});
+}
+function updateResumeCard(){
+  const card=$("#resume-card");if(!card)return;
+  const rows=["send","status"].map(sec=>{
+    if(!hasDraftContent(sec))return null;
+    const d=draftPayload(sec), meta=draftMetaText(sec,d), t=draftTime(lastDraftSavedAt[sec]);
+    return{section:sec,label:sec==="send"?"Enviar mensaje":"Estados",detail:(meta||"Texto")+(t?" · "+t:"")};
+  }).filter(Boolean);
+  if(!rows.length){card.classList.add("hidden");return}
+  card.classList.remove("hidden");
+  const meta=$("#resume-meta");if(meta)meta.textContent=rows.map(r=>r.label+" · "+r.detail).join("  |  ");
+  const sendBtn=$("#resume-send"),statusBtn=$("#resume-status");
+  if(sendBtn)sendBtn.classList.toggle("hidden",!rows.some(r=>r.section==="send"));
+  if(statusBtn)statusBtn.classList.toggle("hidden",!rows.some(r=>r.section==="status"));
 }
 function draftPayload(section){const f=DRAFT_FIELDS[section];return{text:$(f.text)?.value||"",type:$(f.type)?.value||"text",recipientIds:section==="send"?[...selectedRecipients]:[]}}
 async function saveDraftNow(section,{silent=false}={}){
@@ -317,13 +339,62 @@ loadDrafts();
 // --- Plantillas de texto (mensajes ya escritos, preseleccionables) ----------
 const templateCache={send:[],status:[]};
 const selectedTemplate={send:"",status:""};
-function updateTemplateButtons(sec){const has=!!selectedTemplate[sec];const save=document.querySelector('[data-template-save="'+sec+'"]');const del=document.querySelector('[data-template-delete="'+sec+'"]');if(save)save.textContent=has?"Actualizar plantilla":"Guardar como plantilla";if(del)del.classList.toggle("hidden",!has)}
-function fillTemplateSelect(sec){const sel=document.querySelector('[data-template-for="'+sec+'"]');if(!sel)return;const cur=selectedTemplate[sec];sel.innerHTML='<option value="">Plantilla…</option>'+templateCache[sec].map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");const valid=cur&&templateCache[sec].some(t=>t.id===cur);sel.value=valid?cur:"";if(!valid)selectedTemplate[sec]="";updateTemplateButtons(sec)}
-async function loadTemplates(){try{const list=await request("/api/templates");["send","status"].forEach(sec=>{templateCache[sec]=list;fillTemplateSelect(sec)})}catch{}}
-$$("[data-template-for]").forEach(sel=>{sel.onchange=()=>{const sec=sel.dataset.templateFor;const id=sel.value;selectedTemplate[sec]=id;if(id){const t=templateCache[sec].find(x=>x.id===id);if(t){const ta=$(DRAFT_FIELDS[sec].text);ta.value=t.text;ta.dispatchEvent(new Event("input"));scheduleDraftSave(sec)}}updateTemplateButtons(sec)}});
-$$("[data-template-save]").forEach(b=>b.onclick=async()=>{const sec=b.dataset.templateSave;const ta=$(DRAFT_FIELDS[sec].text);const text=ta.value.trim();if(!text)return toast("Escribí el texto antes de guardarlo como plantilla.");const cur=selectedTemplate[sec];const existing=cur?templateCache[sec].find(t=>t.id===cur):null;const name=await askText({title:existing?"Actualizar plantilla":"Nueva plantilla",message:existing?"Cambiá el nombre o dejá el actual para sobrescribirla.":"Poné un nombre fácil de reconocer después.",value:existing?existing.name:"",acceptLabel:existing?"Actualizar":"Guardar"});if(name===null)return;try{if(existing){await request("/api/templates/"+existing.id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name||existing.name,text})});toast("Plantilla actualizada")}else{const created=await request("/api/templates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,text})});selectedTemplate[sec]=created.id;toast("Plantilla guardada")}await loadTemplates()}catch(e){toast(e.message)}});
-$$("[data-template-delete]").forEach(b=>b.onclick=async()=>{const sec=b.dataset.templateDelete;const id=selectedTemplate[sec];if(!id)return;const t=templateCache[sec].find(x=>x.id===id);if(!await askConfirm(`¿Eliminar la plantilla "${t?t.name:""}"?`,{title:"Eliminar plantilla",acceptLabel:"Eliminar",danger:true}))return;try{await request("/api/templates/"+id,{method:"DELETE"});selectedTemplate[sec]="";toast("Plantilla eliminada");await loadTemplates()}catch(e){toast(e.message)}});
+function templateSnippet(text){const raw=String(text||"").trim();const lines=raw.split("\n").filter(Boolean);return lines.slice(0,2).join(" · ").slice(0,110)+(raw.length>110?"…":"")}
+function renderTemplates(sec){
+  const list=document.querySelector('[data-template-list="'+sec+'"]');if(!list)return;
+  const items=templateCache[sec]||[];
+  list.innerHTML=items.map(t=>{
+    const active=selectedTemplate[sec]===t.id;
+    return '<div class="template-item'+(active?" active":"")+'" data-template-id="'+esc(t.id)+'">'+
+      '<button type="button" class="template-use" data-template-list="'+sec+'" data-template-action="use" data-id="'+esc(t.id)+'">'+
+      '<strong>'+esc(t.name)+'</strong><span class="template-snippet">'+esc(templateSnippet(t.text))+'</span>'+
+      (active?'<span class="template-inuse">En uso</span>':"")+'</button>'+
+      '<span class="template-actions">'+
+      '<button type="button" class="small-btn" data-template-list="'+sec+'" data-template-action="rename" data-id="'+esc(t.id)+'">Renombrar</button>'+
+      '<button type="button" class="small-btn" data-template-list="'+sec+'" data-template-action="update" data-id="'+esc(t.id)+'">Actualizar</button>'+
+      '<button type="button" class="small-btn danger" data-template-list="'+sec+'" data-template-action="delete" data-id="'+esc(t.id)+'">Eliminar</button>'+
+      '</span></div>';
+  }).join("");
+  const count=document.querySelector('[data-template-count="'+sec+'"]');if(count)count.textContent=items.length?"("+items.length+")":"";
+  const empty=document.querySelector('[data-template-empty="'+sec+'"]');if(empty)empty.classList.toggle("hidden",items.length>0);
+}
+async function loadTemplates(){try{const list=await request("/api/templates");["send","status"].forEach(sec=>{templateCache[sec]=list;renderTemplates(sec)})}catch{}}
+function composerText(sec){return $(DRAFT_FIELDS[sec].text)?.value||""}
+async function useTemplate(sec,t){
+  const ta=$(DRAFT_FIELDS[sec].text);if(!ta)return;
+  const previous=ta.value,prevSelected=selectedTemplate[sec];
+  if(previous.trim()&&previous!==t.text){
+    if(!await askConfirm('La plantilla “'+t.name+'” reemplaza el texto que estás escribiendo. ¿Aplicarla?',{title:"Aplicar plantilla",acceptLabel:"Aplicar",danger:true}))return;
+  }
+  ta.value=t.text;ta.dispatchEvent(new Event("input"));
+  selectedTemplate[sec]=t.id;renderTemplates(sec);
+  if(previous!==t.text)toast("Plantilla aplicada",{label:"Deshacer",onClick:()=>{ta.value=previous;ta.dispatchEvent(new Event("input"));selectedTemplate[sec]=prevSelected;renderTemplates(sec)}});
+  else toast("Plantilla aplicada");
+}
+async function newTemplate(sec){
+  const text=composerText(sec).trim();if(!text)return toast("Escribí el texto antes de guardarlo como plantilla.");
+  const name=await askText({title:"Nueva plantilla",message:"Se guarda el texto del cuadro y queda disponible en Enviar y Estados.",value:"",acceptLabel:"Guardar",preview:text});
+  if(name===null||!name.trim())return;
+  try{const created=await request("/api/templates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim(),text})});selectedTemplate[sec]=created.id;toast("Plantilla guardada");await loadTemplates()}catch(e){toast(e.message)}
+}
+async function renameTemplate(sec,t){
+  const name=await askText({title:"Renombrar plantilla",message:"Cambiá solo el nombre; el texto se mantiene.",value:t.name,acceptLabel:"Guardar",preview:t.text});
+  if(name===null||!name.trim()||name.trim()===t.name)return;
+  try{await request("/api/templates/"+encodeURIComponent(t.id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim(),text:t.text})});toast("Plantilla renombrada");await loadTemplates()}catch(e){toast(e.message)}
+}
+async function updateTemplateFromComposer(sec,t){
+  const text=composerText(sec).trim();if(!text)return toast("Escribí el texto antes de actualizar la plantilla.");
+  if(!await askConfirm('¿Actualizar “'+t.name+'” con el texto que hay ahora?',{title:"Actualizar plantilla",acceptLabel:"Actualizar"}))return;
+  try{await request("/api/templates/"+encodeURIComponent(t.id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:t.name,text})});toast("Plantilla actualizada");await loadTemplates()}catch(e){toast(e.message)}
+}
+async function deleteTemplate(sec,t){
+  if(!await askConfirm('¿Eliminar la plantilla “'+t.name+'”?',{title:"Eliminar plantilla",acceptLabel:"Eliminar",danger:true}))return;
+  try{await request("/api/templates/"+encodeURIComponent(t.id),{method:"DELETE"});if(selectedTemplate[sec]===t.id)selectedTemplate[sec]="";toast("Plantilla eliminada");await loadTemplates()}catch(e){toast(e.message)}
+}
+$$("div.template-list[data-template-list]").forEach(list=>{list.addEventListener("click",async e=>{const btn=e.target.closest("button[data-template-action]");if(!btn)return;const sec=list.dataset.templateList;const t=(templateCache[sec]||[]).find(x=>x.id===btn.dataset.id);if(!t)return;({use:useTemplate,rename:renameTemplate,update:updateTemplateFromComposer,delete:deleteTemplate})[btn.dataset.templateAction]?.(sec,t)})});
+$$("[data-template-new]").forEach(b=>b.onclick=()=>newTemplate(b.dataset.templateNew));
 loadTemplates();
+
 $("#add-contact").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.target);const btn=submitButton(e.target);btn.disabled=true;try{await request("/api/contacts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:f.get("name"),phone:f.get("phone"),dni:f.get("dni"),optIn:f.has("optIn")})});e.target.reset();toast("Cliente guardado");refreshContacts();loadSummary()}catch(err){toast(err.message)}finally{btn.disabled=false}});
 $("#import-form").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.target);const btn=submitButton(e.target);btn.disabled=true;try{const r=await request("/api/import",{method:"POST",body:f});toast(`Importados: ${r.added}. Duplicados: ${r.duplicates}. Inválidos: ${r.invalid}.`);e.target.reset();refreshContacts();loadSummary()}catch(err){toast(err.message)}finally{btn.disabled=false}});
 function renderRecipients(){loadContacts().then(renderRecipientList).catch(e=>toast(e.message))}

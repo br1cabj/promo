@@ -168,19 +168,21 @@ El set está **curado a propósito**: usa emojis antiguos y muy extendidos (Unic
 
 Mientras redactás un mensaje o un estado, el panel **guarda el borrador automáticamente en el servidor** (SQLite). Como queda en el servidor y no en el navegador, el mismo borrador está disponible desde la PC y desde el celular.
 
-- Se guardan el **texto**, el **tipo** (texto/imagen/video) y, en "Enviar mensaje", los **destinatarios** seleccionados. **No se guardan imágenes ni videos**: el navegador no puede volver a cargar un archivo por seguridad. La tarjeta **Borrador automático** lo recuerda y muestra qué se guardó (por ejemplo: `Texto · Imagen · 3 destinatarios`).
-- El guardado es **automático** (unos 800 ms después de que dejás de escribir) y se fuerza al salir o cambiar de pestaña. La tarjeta muestra **Guardando… → Guardado automáticamente** con la **hora del último guardado**. Si falla, ofrece **Reintentar guardado** en vez de dejar un mensaje sin salida.
+- La tarjeta **Borrador automático** está **justo debajo del cuadro de texto**, antes que las plantillas y el toolbar de formato (que arranca cerrado). Así se ve sin scroll: en el celular ya no hace falta bajar hasta el final de la tarjeta.
+- Se guardan el **texto**, el **tipo** (texto/imagen/video) y, en "Enviar mensaje", los **destinatarios** seleccionados. **No se guardan imágenes ni videos**: el navegador no puede volver a cargar un archivo por seguridad. La tarjeta muestra qué se guardó (por ejemplo: `Texto · Imagen · 3 destinatarios`) y el aviso sobre adjuntos **solo cuando el tipo es imagen o video**.
+- El guardado es **automático** (unos 800 ms después de que dejás de escribir) y se fuerza al salir o cambiar de pestaña. La tarjeta muestra **Guardando… → Guardado automáticamente** con la **hora del último guardado** (oculta si todavía no hay borrador). Si falla, ofrece **Reintentar guardado** en vez de dejar un mensaje sin salida.
 - Al recargar, si venía de otra sesión o equipo, verás **Borrador recuperado de otra sesión** con la hora en que se guardó.
 - Después de un envío exitoso, el **texto se conserva para reutilizarlo**, pero los **destinatarios se limpian** para evitar un reenvío accidental a la misma lista.
-- **Descartar borrador** pide confirmación y limpia el formulario. Un borrador totalmente vacío (sin texto ni destinatarios) no se guarda: se elimina solo.
+- Cuando hay borrador, aparece un **punto en "Enviar mensaje" y/o "Estados"** en el menú y, en el Inicio, la tarjeta **Continuar donde lo dejaste** con los botones para retomarlo. **Descartar** pide confirmación y solo se muestra si hay algo para descartar; un borrador vacío se elimina solo.
 - El **texto del borrador se cifra** en reposo, igual que el teléfono y el DNI.
 
 ## Plantillas de texto
 
 Además del borrador, podés guardar **plantillas**: mensajes ya escritos y reutilizables, para no reescribir lo mismo cada vez.
 
-- Las plantillas tienen su propio bloque **Plantillas guardadas**, separado del borrador automático, en **Enviar mensaje** y **Estados**. El desplegable **Plantilla…** carga un texto guardado en el cuadro (no modifica los destinatarios que ya tengas seleccionados).
-- **Guardar como plantilla** crea una nueva a partir del texto actual y abre un modal propio para pedir el nombre, sin diálogos nativos del navegador. Si tenés una plantilla cargada, el botón pasa a **Actualizar plantilla** y aparece **Eliminar**, también con confirmación accesible.
+- Las plantillas son **globales**: se muestran en **Enviar mensaje** y en **Estados** con la misma lista. Cada plantilla aparece con su **nombre y un fragmento del texto**, así sabés cuál es antes de usarla. No hay desplegable: se eligió una lista visible con acciones explícitas.
+- **Usar** aplica el texto en el cuadro (no modifica los destinatarios que ya tengas seleccionados). Si ya había texto, aparece una **confirmación** y, después de aplicarla, un aviso con **Deshacer** para volver al texto anterior.
+- **+ Nueva plantilla** siempre crea una a partir del texto actual y abre un modal propio que muestra el texto que se va a guardar, sin diálogos nativos del navegador. Cada plantilla tiene sus botones **Renombrar**, **Actualizar** (con el texto actual del cuadro) y **Eliminar**, todos con confirmación. Si no guardaste ninguna, el bloque lo dice y te indica cómo empezar.
 - Las plantillas viven en el **servidor** (SQLite) y su texto se cifra en reposo, así están disponibles desde la PC y el celular.
 
 ## Experiencia de uso

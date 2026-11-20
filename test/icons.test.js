@@ -29,6 +29,8 @@ test("2. los iconos son locales: sin CDN, sin webfonts y sin script remoto", () 
   assert.ok(html.indexOf("/icons.js") < html.indexOf("/app.js"), "icons.js debe cargar antes");
   assert.ok(!/<script[^>]+src="https?:/.test(html), "no debe haber scripts remotos");
   assert.ok(!/@import\s+url\(https?:/.test(css), "no debe haber fuentes remotas");
+  assert.ok(html.includes('<link rel="icon" href="/favicon.svg" type="image/svg+xml">'));
+  assert.ok(fs.existsSync(path.join(root, "public", "favicon.svg")));
   assert.ok(app.includes("function hydrateIcons()"));
   assert.ok(app.includes("iconSvg(el.dataset.icon)"));
   assert.ok(app.includes("el.outerHTML=svg"), "el placeholder se reemplaza por el SVG");
@@ -54,7 +56,7 @@ test("4. el HTML usa placeholders con nombre semántico", () => {
   for (const name of expected) {
     assert.ok(html.includes(`data-icon="${name}"`), `falta el placeholder ${name}`);
   }
-  assert.equal((html.match(/data-icon="draft"/g) || []).length, 2, "el borrador aparece en Enviar y Estados");
+  assert.equal((html.match(/data-icon="draft"/g) || []).length, 3, "el borrador aparece en Enviar, Estados y la tarjeta del Inicio");
   assert.equal((html.match(/data-icon="sparkles"/g) || []).length, 2, "marca de agua y brand");
   assert.ok(!/<svg viewBox="0 0 24 24"/.test(html), "no quedaron SVG escritos a mano");
 });

@@ -53,11 +53,11 @@ test("4. al cambiar de página se cierra el cajón, se sube el scroll y se mueve
   assert.ok(app.includes('if(drawerWasOpen){const h=$("#page-title");if(h){h.setAttribute("tabindex","-1");h.focus({preventScroll:true})}}'));
 });
 
-test("5. el toolbar de formato se colapsa en celular sin perder el preview", () => {
-  assert.equal((html.match(/<details class="format-details" open><summary>Formato y emojis<\/summary>/g) || []).length, 2);
-  assert.ok(app.includes('const mobileLayout=window.matchMedia("(max-width:650px)")'));
-  assert.ok(app.includes("function syncFormatDetails(){$$(\".format-details\").forEach(d=>{d.open=!mobileLayout.matches})}"));
-  assert.ok(app.includes("mobileLayout.addEventListener(\"change\",syncFormatDetails)"));
+test("5. el toolbar de formato arranca cerrado en escritorio y en celular", () => {
+  assert.equal((html.match(/<details class="format-details"><summary>Formato y emojis<\/summary>/g) || []).length, 2);
+  assert.ok(!html.includes("<details class=\"format-details\" open>"));
+  assert.ok(!app.includes("syncFormatDetails"));
+  assert.ok(app.includes("// El toolbar empieza cerrado en todas las pantallas"));
   assert.ok(css.includes(".format-details>summary{"));
 });
 
