@@ -34,6 +34,7 @@ function mockEvolution() {
   const state = {
     instanceExists: true, networkDown: false, sent: [], statuses: [],
     connectionState: "open", connectionError: 0, connectResponse: null, sendError: 0,
+    healthError: 0, healthDown: false,
     instances: [{ instanceName: "promociones", owner: "5493511234567", profileName: "Tienda" }]
   };
   const server = http.createServer((req, res) => {
@@ -48,7 +49,11 @@ function mockEvolution() {
         if (state.connectionError) { res.statusCode = state.connectionError; return res.end('{"message":"Unauthorized"}'); }
         return res.end(JSON.stringify({ instance: { state: state.connectionState } }));
       }
-      if (req.url.startsWith("/instance/fetchInstances")) return res.end(JSON.stringify(state.instances));
+      if (req.url.startsWith("/instance/fetchInstances")) {
+        if (state.healthDown) { req.socket.destroy(); return; }
+        if (state.healthError) { res.statusCode = state.healthError; return res.end('{"message":"Unauthorized"}'); }
+        return res.end(JSON.stringify(state.instances));
+      }
       if (req.url.startsWith("/instance/connect/")) {
         if (!state.instanceExists) { res.statusCode = 404; return res.end('{"message":"Instance not found"}'); }
         if (state.connectResponse) return res.end(JSON.stringify(state.connectResponse));
@@ -144,6 +149,9 @@ test("rutas HTTP: health, auth, CSRF, CSV, estados, connect, idempotencia y stre
     assert.equal(body.status, "ok");
     assert.equal(body.dbOk, true);
     assert.match(body.version, /^\d+\.\d+\.\d+$/);
+    assert.equal(body.evolution.configured, true);
+    assert.equal(body.evolution.status, "ok");
+    assert.match(body.evolution.checkedAt, /^\d{4}-\d{2}-\d{2}T/);
   });
 
   await t.test("sin sesión no se accede a la API", async () => {
@@ -482,4 +490,75 @@ test("un 401 o 500 sostenido de Evolution corta la campaña", async (t) => {
   assert.equal(serverJob.processed, 2, "corta tras dos 500 seguidos");
   assert.match(serverJob.error, /500 2 veces/);
   assert.equal(state.sent.length, 0, "ningún mensaje se envió con la clave rota");
+});
+
+async function startHealthApp(extra = {}) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pp-health-evo-"));
+  const { server: evo, state } = mockEvolution();
+  await new Promise((r) => evo.listen(0, "127.0.0.1", r));
+  setupEnv({
+    dataDir,
+    evoUrl: `http://127.0.0.1:${evo.address().port}`,
+    extra: { EVO_PROBE_TTL_MS: "150", ...extra }
+  });
+  delete require.cache[require.resolve("../server")];
+  const { app, server, base } = await startApp();
+  return {
+    base, state,
+    cleanup: async () => {
+      await new Promise((r) => server.close(r));
+      await new Promise((r) => evo.close(r));
+      app.store.close();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  };
+}
+const getHealth = async (base) => {
+  const r = await fetch(base + "/health");
+  return { status: r.status, body: await r.json() };
+};
+
+test("/health ve Evolution caído o con clave inválida, pero no reinicia el panel", async (t) => {
+  const ctx = await startHealthApp();
+  t.after(ctx.cleanup);
+  const { base, state } = ctx;
+
+  const ok = await getHealth(base);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.evolution.status, "ok");
+
+  state.healthDown = true;
+  const cached = await getHealth(base);
+  assert.equal(cached.body.evolution.status, "ok", "el probe está cacheado");
+  await sleep(200);
+  const down = await getHealth(base);
+  assert.equal(down.status, 200, "un fallo de Evolution no cambia el código HTTP");
+  assert.equal(down.body.status, "ok");
+  assert.equal(down.body.dbOk, true);
+  assert.equal(down.body.evolution.status, "down");
+  assert.match(down.body.evolution.error, /Evolution API|EVOLUTION_URL/);
+
+  state.healthDown = false;
+  state.healthError = 401;
+  await sleep(200);
+  const auth = await getHealth(base);
+  assert.equal(auth.status, 200);
+  assert.equal(auth.body.evolution.status, "auth_error");
+  assert.match(auth.body.evolution.error, /EVOLUTION_API_KEY/);
+
+  state.healthError = 0;
+  await sleep(200);
+  const recovered = await getHealth(base);
+  assert.equal(recovered.body.evolution.status, "ok", "se recupera sin reiniciar el panel");
+});
+
+test("/health sin Evolution configurada no intenta consultarla", async (t) => {
+  const ctx = await startHealthApp({ EVOLUTION_URL: "", EVOLUTION_API_KEY: "" });
+  t.after(ctx.cleanup);
+  const r = await getHealth(ctx.base);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.configured, false);
+  assert.equal(r.body.evolution.configured, false);
+  assert.equal(r.body.evolution.status, "unconfigured");
+  assert.equal(r.body.evolution.checkedAt, undefined);
 });

@@ -75,6 +75,35 @@ const config = {
 };
 const configured = () => Boolean(config.url && config.key && config.instance);
 
+// Estado de Evolution para /health. Es informativo: una API caída no cambia el
+// código HTTP del healthcheck, porque reiniciar el panel no la arregla y sí
+// cortaría los envíos en curso. El estado de WhatsApp sigue en /api/connection.
+let evoHealthCache = null, evoHealthAt = 0, evoHealthPending = null;
+async function evolutionHealth() {
+  if (!configured()) return { configured: false, status: "unconfigured" };
+  if (evoHealthCache && Date.now() - evoHealthAt < EVO_PROBE_TTL_MS) return evoHealthCache;
+  if (evoHealthPending) return evoHealthPending;
+  evoHealthPending = (async () => {
+    let result;
+    try {
+      const r = await axios.get(`${config.url}/instance/fetchInstances`, {
+        headers: { apikey: config.key },
+        timeout: EVO_PROBE_TIMEOUT_MS,
+        validateStatus: () => true
+      });
+      result = r.status >= 400
+        ? { status: r.status === 401 || r.status === 403 ? "auth_error" : "down", error: evoError({ response: { status: r.status, data: r.data } }) }
+        : { status: "ok" };
+    } catch (e) {
+      result = { status: "down", error: evoError(e) };
+    }
+    evoHealthCache = { configured: true, ...result, checkedAt: new Date().toISOString() };
+    evoHealthAt = Date.now();
+    return evoHealthCache;
+  })().finally(() => { evoHealthPending = null; });
+  return evoHealthPending;
+}
+
 const TRUST_PROXY = process.env.TRUST_PROXY === "true";
 const PANEL_USER = process.env.PANEL_USER || "admin";
 const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "change-me-now";
@@ -88,6 +117,10 @@ const SEND_BATCH_PAUSE_MS = envInt("SEND_BATCH_PAUSE_MS", 60000, 0, 60 * 60 * 10
 const MAX_UPLOAD_MB = envInt("MAX_UPLOAD_MB", 25, 1, 250);
 const MAX_SEND_FILES = envInt("MAX_SEND_FILES", 10, 1, 50);
 const MAX_TOTAL_UPLOAD_MB = envInt("MAX_TOTAL_UPLOAD_MB", 60, 1, 500);
+// Probe del healthcheck: corto para no pasar el timeout de Docker y cacheado
+// para no martillar Evolution cada vez que alguien consulta /health.
+const EVO_PROBE_TIMEOUT_MS = envInt("EVO_PROBE_TIMEOUT_MS", 3000, 250, 15000);
+const EVO_PROBE_TTL_MS = envInt("EVO_PROBE_TTL_MS", 15000, 100, 5 * 60 * 1000);
 
 // ---------------------------------------------------------------------------
 // Sesiones (token aleatorio validado contra un Map en memoria; logout real)
@@ -307,13 +340,15 @@ function loginPage(error) {
 </body></html>`;
 }
 
-app.get("/health", (req, res) => {
+app.get("/health", async (req, res) => {
   const dbOk = ENCRYPTION_OK && store.isHealthy();
+  const evolution = await evolutionHealth();
   res.status(dbOk ? 200 : 503).json({
     status: dbOk ? "ok" : "error",
     configured: configured(),
     version: APP_VERSION,
-    dbOk
+    dbOk,
+    evolution
   });
 });
 

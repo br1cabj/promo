@@ -254,7 +254,7 @@ Los símbolos del toolbar de formato (`N`, `C`, `S`, `{ }`, `❝`, listas) sigue
 
 ## Endpoints propios del panel
 
-- `GET /health` — estado del servicio (sin autenticación, para healthchecks).
+- `GET /health` — estado del servicio (sin autenticación, para healthchecks). Devuelve `{ status, configured, version, dbOk, evolution }`. El código HTTP sigue dependiendo solo de la base/cifrado: `evolution` es informativo (`ok`, `down`, `auth_error` o `unconfigured`) para que una caída de Evolution **no reinicie el panel** ni corte envíos en curso. El estado de la sesión de WhatsApp se consulta en `/api/connection`.
 - `GET /login`, `POST /login`, `POST /logout` — sesión del panel.
 - `POST /api/send` — inicia una campaña y devuelve `{ jobId, total }`.
 - `GET /api/jobs/{id}` — progreso y resultado de una campaña.
