@@ -70,7 +70,8 @@ function showPage(name){
   if(name==="contacts")refreshContacts();
   if(name==="send")renderRecipients();
   if(name==="history"){loadSummary();loadHistory()}
-  if(name==="connection")loadConnection();else stopConnectionWatch();
+  if(name==="connection"||name==="send"||name==="status")loadConnection({silent:true});else stopConnectionWatch();
+  startPageConnectionWatch();
 }
 $$(".nav").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));
 // Incluye las acciones rápidas y el chip "Ver WhatsApp" de Enviar.
@@ -815,6 +816,19 @@ function hideLinkBoxes(){
   linkKind=null;linkExpiresAt=0;
 }
 function stopConnectionWatch(){if(connectionWatch){clearInterval(connectionWatch);connectionWatch=null}connectionPollTick=0}
+// En Enviar/Estados el chip debe dejar de decir "conectado" si la sesión se
+// cortó mientras se armaba la campaña. Se apaga solo al salir de esas páginas.
+let pageConnectionWatch=null;
+function startPageConnectionWatch(){
+  if(pageConnectionWatch)return;
+  pageConnectionWatch=setInterval(()=>{
+    if(document.visibilityState!=="visible")return;
+    if($("#page-send").classList.contains("hidden")&&$("#page-status").classList.contains("hidden")){
+      clearInterval(pageConnectionWatch);pageConnectionWatch=null;return
+    }
+    loadConnection({silent:true})
+  },60000)
+}
 function updateLinkCountdown(){
   if(!linkKind||!linkExpiresAt)return;
   const left=linkExpiresAt-Date.now();
@@ -840,6 +854,25 @@ function startConnectionWatch(){
     if(connectionPollTick%5===0)await loadConnection({silent:true});
   },1000);
 }
+function showLink(link,{notify=false}={}){
+  if(!link)return;
+  hideLinkBoxes();
+  if(link.kind==="qr"){
+    if(!link.qr)return;
+    $("#qr-image").src=link.qr;
+    const dl=$("#qr-download");
+    if(dl){dl.href=link.qr;dl.download="whatsapp-qr."+(link.qrMime==="image/svg+xml"?"svg":"png");dl.removeAttribute("aria-disabled");dl.removeAttribute("tabindex")}
+    $("#qr-box").classList.remove("hidden");
+  }else{
+    if(!link.pairingCode)return;
+    $("#pairing-code").textContent=formatPairing(link.pairingCode);
+    $("#pairing-box").classList.remove("hidden");
+  }
+  linkKind=link.kind;
+  linkExpiresAt=Number(link.expiresAt)||Date.now()+linkTtlMs;
+  updateLinkCountdown();startConnectionWatch();
+  if(notify)toast("Código generado. Ingresalo en WhatsApp.")
+}
 function applyConnection(r,{silent=false}={}){
   const connected=!!r.connected;
   const dot=$("#connection-dot"),title=$("#connection-title"),detail=$("#connection-detail"),account=$("#connection-account");
@@ -848,7 +881,7 @@ function applyConnection(r,{silent=false}={}){
     title.textContent="Evolution API sin configurar";
     detail.textContent="Configurá EVOLUTION_URL, EVOLUTION_API_KEY y EVOLUTION_INSTANCE en el servidor.";
   }else{
-    title.textContent=connected?"Conectado a WhatsApp":"WhatsApp sin conexión";
+    title.textContent=r.authError?"Evolution API rechazó la clave":connected?"Conectado a WhatsApp":"WhatsApp sin conexión";
     detail.textContent=r.error||(connected?"La sesión está activa y lista para enviar.":"Vinculá un número para empezar a enviar.");
   }
   if(connected&&(r.owner||r.profileName)){
@@ -861,7 +894,12 @@ function applyConnection(r,{silent=false}={}){
     const hadLink=!!linkKind;
     hideLinkBoxes();stopConnectionWatch();
     if(hadLink&&!silent)toast("WhatsApp vinculado");
-  }else if(linkKind)startConnectionWatch();
+  }else{
+    if(linkKind)startConnectionWatch();
+    // Tras recargar, el servidor conserva el link vigente: lo mostramos con su
+    // vencimiento real en vez de reiniciar el contador.
+    if(!linkKind&&r.link)showLink(r.link);
+  }
   return connected;
 }
 async function loadConnection({silent=false}={}){
@@ -888,7 +926,8 @@ function updateSendConnection(r){
   const configured=r.configured!==false,connected=!!r.connected;
   dot.classList.toggle("ok",connected);
   dot.classList.toggle("warn",configured&&!connected);
-  text.textContent=!configured?"Evolution API sin configurar":connected?"WhatsApp conectado · listo para enviar":`WhatsApp sin conexión${r.error?" · "+r.error:""} · vinculá antes de enviar`;
+  const hint=r.authError?"revisá EVOLUTION_API_KEY":"vinculá antes de enviar";
+  text.textContent=!configured?"Evolution API sin configurar":connected?"WhatsApp conectado · listo para enviar":`WhatsApp sin conexión${r.error?" · "+r.error:""} · ${hint}`;
 }
 async function requestConnect(payload,button){
   if(button.disabled)return null;
@@ -906,9 +945,9 @@ async function requestConnect(payload,button){
 }
 $("#refresh-connection").onclick=()=>loadConnection();
 $("#disconnect-button").onclick=async()=>{if(!await askConfirm("¿Desvincular este número de WhatsApp? Vas a tener que volver a vincularlo para enviar mensajes.",{title:"Desvincular WhatsApp",acceptLabel:"Desvincular",danger:true}))return;const b=$("#disconnect-button");b.disabled=true;b.textContent="Desvinculando...";try{await request("/api/disconnect",{method:"POST"});toast("Número desvinculado");hideLinkBoxes();stopConnectionWatch();await loadConnection()}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent="Desvincular"}};
-$("#connect-button").onclick=async()=>{try{const r=await requestConnect({},$("#connect-button"));if(!r)return;if(!r.qr){hideLinkBoxes();toast("Evolution API no devolvió un QR. Revisá la instancia y su estado.");return}hideLinkBoxes();$("#qr-image").src=r.qr;const dl=$("#qr-download");if(dl){dl.href=r.qr;dl.download="whatsapp-qr."+(r.qrMime==="image/svg+xml"?"svg":"png");dl.removeAttribute("aria-disabled");dl.removeAttribute("tabindex")}linkKind="qr";linkExpiresAt=Date.now()+linkTtlMs;$("#qr-box").classList.remove("hidden");updateLinkCountdown();startConnectionWatch()}catch(e){toast(e.message)}};
+$("#connect-button").onclick=async()=>{try{const r=await requestConnect({},$("#connect-button"));if(!r)return;if(!r.qr){hideLinkBoxes();toast("Evolution API no devolvió un QR. Revisá la instancia y su estado.");return}showLink({kind:"qr",qr:r.qr,qrMime:r.qrMime,expiresAt:r.expiresAt})}catch(e){toast(e.message)}};
 function formatPairing(code){const c=String(code||"").replace(/\s/g,"");return c.length===8?c.slice(0,4)+"-"+c.slice(4):c}
-$("#pairing-button").onclick=async()=>{const input=$("#connect-phone"),number=input.value.trim();if(!number){toast("Escribí el número de WhatsApp con código de país.");return}try{const r=await requestConnect({number},$("#pairing-button"));if(!r)return;if(!r.pairingCode){hideLinkBoxes();toast("Evolution no devolvió un código. Puede que la instancia ya esté en modo QR: probá de nuevo en unos segundos o usá el QR.");return}hideLinkBoxes();$("#pairing-code").textContent=formatPairing(r.pairingCode);linkKind="pairing";linkExpiresAt=Date.now()+linkTtlMs;$("#pairing-box").classList.remove("hidden");updateLinkCountdown();startConnectionWatch();toast("Código generado. Ingresalo en WhatsApp.")}catch(e){toast(e.message)}};
+$("#pairing-button").onclick=async()=>{const input=$("#connect-phone"),number=input.value.trim();if(!number){toast("Escribí el número de WhatsApp con código de país.");return}try{const r=await requestConnect({number},$("#pairing-button"));if(!r)return;if(!r.pairingCode){hideLinkBoxes();toast("Evolution no devolvió un código. Puede que la instancia ya esté en modo QR: probá de nuevo en unos segundos o usá el QR.");return}showLink({kind:"pairing",pairingCode:r.pairingCode,expiresAt:r.expiresAt},{notify:true})}catch(e){toast(e.message)}};
 collapseHomeNotice();
 loadSummary();
 loadConnection({silent:true});

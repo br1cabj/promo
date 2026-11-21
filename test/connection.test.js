@@ -29,15 +29,15 @@ test("un 404 no crea la instancia sin confirmación", () => {
 });
 
 test("el front usa la versión pública del QR y avisa si no hay imagen", () => {
-  assert.match(server, /res\.json\(connectResponse\(r\.data \|\| \{\}\)\)/);
-  assert.match(app, /dl\.download="whatsapp-qr\."\+\(r\.qrMime==="image\/svg\+xml"\?"svg":"png"\)/);
+  assert.match(server, /const response = connectResponse\(r\.data \|\| \{\}\)/);
+  assert.match(app, /dl\.download="whatsapp-qr\."\+\(link\.qrMime==="image\/svg\+xml"\?"svg":"png"\)/);
   assert.match(app, /if\(!r\.qr\)\{hideLinkBoxes\(\);toast\("Evolution API no devolvió un QR/);
 });
 
 test("el endpoint no reenvía el payload crudo de Evolution", () => {
   const endpoint = server.match(/app\.post\("\/api\/connect"[\s\S]*?\n\}\);/);
   assert.ok(endpoint, "falta /api/connect");
-  assert.match(endpoint[0], /connectResponse\(r\.data \|\| \{\}\)/);
+  assert.match(endpoint[0], /const response = connectResponse\(r\.data \|\| \{\}\)/);
   assert.ok(!/\bdata:\s*data\b/.test(endpoint[0]), "no debe devolver data cruda");
   assert.ok(!/^\s*data\s*,\s*$/m.test(endpoint[0]), "no debe devolver data cruda");
 });
@@ -61,7 +61,7 @@ test("hay polling, countdown y ocultado al conectar", () => {
   assert.match(app, /function updateLinkCountdown\(\)/);
   assert.match(app, /toast\(was==="qr"\?"El QR venció\. Generá uno nuevo\.":"El código venció\. Generá uno nuevo\."\)/);
   assert.match(app, /if\(connected\)\{\s*\n\s*const hadLink=!!linkKind;\s*\n\s*hideLinkBoxes\(\);stopConnectionWatch\(\);/);
-  assert.match(app, /if\(name==="connection"\)loadConnection\(\);else stopConnectionWatch\(\)/);
+  assert.match(app, /if\(name==="connection"\|\|name==="send"\|\|name==="status"\)loadConnection\(\{silent:true\}\);else stopConnectionWatch\(\)/);
   assert.match(html, /id="qr-expiry" class="muted"/);
   assert.match(html, /id="pairing-expiry"/);
 });
@@ -87,4 +87,25 @@ test("los confirms nativos se reemplazan por un modal accesible", () => {
   assert.match(app, /function closeConfirm\(result\)/);
   assert.match(app, /if\(ev\.key==="Escape"\)\{closeEmojiPanels\(\);closeEdit\(\);closeConfirm\(false\);closeTemplate\(false\);closeNav\(true\)\}/);
   assert.equal((app.match(/await askConfirm\(/g) || []).length, 9, "debe reemplazar los 9 confirms (incluye plantillas y borrado de clientes)");
+});
+
+test("los errores de autenticación y el link del servidor llegan al front", () => {
+  assert.match(server, /authError: status === 401 \|\| status === 403/);
+  assert.match(server, /link: currentLink\(config\.instance\)/);
+  assert.match(app, /title\.textContent=r\.authError\?"Evolution API rechazó la clave"/);
+  assert.match(app, /r\.authError\?"revisá EVOLUTION_API_KEY":"vinculá antes de enviar"/);
+  assert.match(server, /const info = list\.find\(\(x\) => x\.instanceName === config\.instance \|\| x\.name === config\.instance\) \|\| \{\}/);
+  assert.ok(!server.includes("|| list[0] || {}"), "no se muestra la cuenta de otra instancia");
+  assert.match(app, /if\(!linkKind&&r\.link\)showLink\(r\.link\)/);
+  assert.match(app, /linkExpiresAt=Number\(link\.expiresAt\)\|\|Date\.now\(\)\+linkTtlMs/);
+  assert.match(app, /function startPageConnectionWatch\(\)/);
+  assert.match(app, /\},60000\)/, "El chip se refresca una vez por minuto");
+});
+
+test("un QR vacío no se cuenta como conexión generada", () => {
+  const endpoint = server.match(/app\.post\("\/api\/connect"[\s\S]*?\n\}\);/);
+  assert.match(endpoint[0], /if \(!response\.qr && !response\.pairingCode\)/);
+  assert.match(endpoint[0], /addHistory\(\{ kind: "connection", ok: false/);
+  assert.match(endpoint[0], /rememberLink\(config\.instance, kind, response\)/);
+  assert.match(endpoint[0], /expiresAt: saved\.expiresAt/);
 });

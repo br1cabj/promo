@@ -23,6 +23,12 @@ test("evoError entiende los formatos de error de Evolution", () => {
   assert.equal(evoError({}), "Error al comunicarse con Evolution API.");
 });
 
+test("evoError distingue una clave rechazada de una sesión sin vincular", () => {
+  const expected = "Evolution API rechazó la clave de acceso (401/403). Revisá EVOLUTION_API_KEY y sus permisos.";
+  assert.equal(evoError({ response: { status: 401, data: { message: "Unauthorized" } } }), expected);
+  assert.equal(evoError({ response: { status: 403, data: { message: "Forbidden" } } }), expected);
+});
+
 test("extractQr normaliza los formatos conocidos y rechaza los inválidos", () => {
   const png = "iVBORw0KGgo=";
   assert.deepEqual(extractQr({ base64: png }), { src: `data:image/png;base64,${png}`, mime: "image/png" });

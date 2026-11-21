@@ -38,9 +38,9 @@ Panel web liviano para gestionar contactos y enviar mensajes/estados mediante Ev
 docker compose up -d --build
 ```
 
-6. Abrí `http://IP-DE-TU-VPS:3000`. Aparecerá una pantalla de ingreso; usá el usuario y la contraseña configurados en `.env`. El botón **Salir** cierra la sesión.
+6. El puerto queda ligado a `127.0.0.1` del VPS. Para probar desde tu PC, abrí un túnel SSH (`ssh -L 3000:127.0.0.1:3000 usuario@IP-VPS`) y entrá a `http://127.0.0.1:3000`. Aparecerá una pantalla de ingreso; usá el usuario y la contraseña configurados en `.env`. El botón **Salir** cierra la sesión.
 
-En producción, publicá el servicio detrás de un proxy HTTPS (por ejemplo, el proxy de Coolify). No expongas el puerto 3000 directamente a Internet sin HTTPS.
+En producción, publicá el servicio detrás de un proxy HTTPS (por ejemplo, el proxy de Coolify) y configurá `TRUST_PROXY=true`. El compose no publica el puerto 3000 en todas las interfaces: nunca expongas el ingreso por HTTP plano.
 
 ## Despliegue en VPS con Coolify
 
@@ -221,12 +221,12 @@ Los símbolos del toolbar de formato (`N`, `C`, `S`, `{ }`, `❝`, listas) sigue
 - Historial local de operaciones.
 - Normalización de teléfonos y detección de duplicados por teléfono **y DNI**.
 - Exportación de la lista de contactos a CSV (mismo formato que la importación).
-- Conexión de WhatsApp por **código QR** o **código de vinculación** (para vincular desde el mismo celular), con la **cuenta conectada** visible (número y nombre) y botón para **desvincular**.
+- Conexión de WhatsApp por **código QR** o **código de vinculación** (para vincular desde el mismo celular), con la **cuenta conectada** visible (número y nombre) y botón para **desvincular**. El link y su vencimiento se conservan en el servidor: recargar la página no reinicia el contador.
 - Edición de contactos (nombre, teléfono, DNI y autorización) desde la interfaz.
 - Formato de texto estilo WhatsApp (negrita, cursiva, tachado, monoespaciado, citas y listas) con vista previa en vivo y selector de emojis compatibles.
 - Borradores de redacción guardados en el servidor, disponibles desde cualquier equipo (texto, tipo y destinatarios; sin adjuntos).
 - Inicio de sesión con cookie de sesión (`HttpOnly`, `SameSite=Strict`, `Secure` sobre HTTPS) y cierre de sesión; la pantalla de ingreso cubre error de credenciales, origen no permitido y límite de intentos.
-- Envío de campañas en segundo plano con progreso en vivo; la petición HTTP responde al instante.
+- Envío de campañas en segundo plano con progreso en vivo; la petición HTTP responde al instante. Si Evolution responde `401/403` se detiene al primer fallo (clave inválida); con `5xx` repetidos, tras dos. El estado de WhatsApp se vuelve a consultar al entrar a Enviar/Estados y una vez por minuto.
 - Límite de intentos de acceso y de solicitudes a la API para mitigar abuso.
 - Cabeceras de seguridad (CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, HSTS sobre HTTPS) y `Cache-Control: no-store` en la API.
 - Base de datos transaccional con cifrado de datos sensibles en reposo.

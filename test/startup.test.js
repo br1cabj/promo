@@ -58,9 +58,11 @@ test("configuración inválida: el panel no arranca y dice por qué", () => {
     assert.notEqual(r.status, 0);
     assert.match(r.stderr, /PANEL_PASSWORD/);
 
-    r = startFailure(dir, { NODE_ENV: "production", PANEL_PASSWORD: "change-me-now" });
-    assert.notEqual(r.status, 0);
-    assert.match(r.stderr, /PANEL_PASSWORD/);
+    for (const placeholder of ["change-me-now", "cambia-esta-clave-larga", "cambia-esta-clave-larga-y-unica"]) {
+      r = startFailure(dir, { NODE_ENV: "production", PANEL_PASSWORD: placeholder });
+      assert.notEqual(r.status, 0, `debe rechazar ${placeholder}`);
+      assert.match(r.stderr, /PANEL_PASSWORD/);
+    }
 
     r = startFailure(dir, { SESSION_HOURS: "abc" });
     assert.notEqual(r.status, 0);
@@ -196,4 +198,17 @@ test("SIGTERM marca el envío como detenido y cierra sin mandar más mensajes", 
   const atExit = sent.length;
   await sleep(700);
   assert.equal(sent.length, atExit, "no se envían mensajes después del apagado");
+});
+
+test("el contenedor recibe la señal y no publica el panel en HTTP plano", () => {
+  const dockerfile = fs.readFileSync(path.join(root, "Dockerfile"), "utf8");
+  const compose = fs.readFileSync(path.join(root, "docker-compose.yml"), "utf8");
+  const coolify = fs.readFileSync(path.join(root, "deploy", "docker-compose.coolify.yml"), "utf8");
+
+  assert.match(dockerfile, /CMD \["node", "server\.js"\]/, "Node debe ser PID 1 para recibir SIGTERM");
+  assert.ok(!dockerfile.includes('CMD ["npm", "start"]'));
+  assert.match(compose, /- "127\.0\.0\.1:3000:3000"/, "el compose rápido escucha solo en loopback");
+  assert.ok(!/^\s+- "3000:3000"/m.test(compose), "no publicar el panel en todas las interfaces");
+  assert.match(coolify, /TRUST_PROXY: "true"/);
+  assert.match(coolify, /expose:\s*\n\s+- "3000"/);
 });

@@ -31,7 +31,11 @@ function setupEnv({ dataDir, evoUrl, extra = {} }) {
 }
 
 function mockEvolution() {
-  const state = { instanceExists: true, networkDown: false, sent: [], statuses: [] };
+  const state = {
+    instanceExists: true, networkDown: false, sent: [], statuses: [],
+    connectionState: "open", connectionError: 0, connectResponse: null, sendError: 0,
+    instances: [{ instanceName: "promociones", owner: "5493511234567", profileName: "Tienda" }]
+  };
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => { body += c; });
@@ -40,12 +44,14 @@ function mockEvolution() {
       res.setHeader("Content-Type", "application/json");
       let payload = {};
       try { payload = JSON.parse(body || "{}"); } catch {}
-      if (req.url.startsWith("/instance/connectionState/")) return res.end('{"instance":{"state":"open"}}');
-      if (req.url.startsWith("/instance/fetchInstances")) {
-        return res.end('[{"instanceName":"promociones","owner":"5493511234567","profileName":"Tienda"}]');
+      if (req.url.startsWith("/instance/connectionState/")) {
+        if (state.connectionError) { res.statusCode = state.connectionError; return res.end('{"message":"Unauthorized"}'); }
+        return res.end(JSON.stringify({ instance: { state: state.connectionState } }));
       }
+      if (req.url.startsWith("/instance/fetchInstances")) return res.end(JSON.stringify(state.instances));
       if (req.url.startsWith("/instance/connect/")) {
         if (!state.instanceExists) { res.statusCode = 404; return res.end('{"message":"Instance not found"}'); }
+        if (state.connectResponse) return res.end(JSON.stringify(state.connectResponse));
         return res.end(req.url.includes("number=")
           ? '{"code":"12345678"}'
           : '{"base64":"aGVsbG8="}');
@@ -55,6 +61,7 @@ function mockEvolution() {
         return res.end('{"base64":"aGVsbG8="}');
       }
       if (req.url.startsWith("/message/sendText/")) {
+        if (state.sendError) { res.statusCode = state.sendError; return res.end('{"message":"Unauthorized"}'); }
         state.sent.push(payload.text);
         return res.end('{"ok":true}');
       }
@@ -84,6 +91,15 @@ async function login(base) {
   });
   assert.equal(r.status, 302);
   return r.headers.get("set-cookie").split(";")[0];
+}
+
+async function waitJob(api, jobId) {
+  for (let i = 0; i < 100; i++) {
+    const r = await api("/api/jobs/" + jobId);
+    if (r.body.status !== "running" && r.body.status !== "queued") return r.body;
+    await sleep(20);
+  }
+  throw new Error("el job " + jobId + " no terminó");
 }
 
 function client(base, cookie) {
@@ -352,4 +368,118 @@ test("varios fallos de red seguidos cortan la campaña y dejan historial real", 
   assert.match(job.error, /Evolution API tras 3 intentos/i);
   const history = await api("/api/history?limit=50");
   assert.equal(history.body.length, 3, "solo se registran los contactos efectivamente intentados");
+});
+
+test("un 401 de Evolution se distingue de 'sin vincular' y no muestra otra cuenta", async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pp-auth-evo-"));
+  const { server: evo, state } = mockEvolution();
+  await new Promise((r) => evo.listen(0, "127.0.0.1", r));
+  setupEnv({ dataDir, evoUrl: `http://127.0.0.1:${evo.address().port}` });
+  delete require.cache[require.resolve("../server")];
+  const { app, server, base } = await startApp();
+  const api = client(base, await login(base));
+  t.after(async () => {
+    await new Promise((r) => server.close(r));
+    await new Promise((r) => evo.close(r));
+    app.store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  state.connectionError = 401;
+  const failed = await api("/api/connection");
+  assert.equal(failed.status, 200);
+  assert.equal(failed.body.authError, true);
+  assert.equal(failed.body.status, 401);
+  assert.equal(failed.body.connected, false);
+  assert.match(failed.body.error, /EVOLUTION_API_KEY/);
+
+  state.connectionError = 0;
+  state.instances = [{ instanceName: "otra-instancia", owner: "5499999999999", profileName: "Otra cuenta" }];
+  const other = await api("/api/connection");
+  assert.equal(other.body.connected, true, "sí está conectada");
+  assert.equal(other.body.owner, "", "no se muestra el número de otra instancia");
+  assert.equal(other.body.profileName, "");
+});
+
+test("el link se guarda en el servidor y un QR fallido no se registra como éxito", async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pp-link-"));
+  const { server: evo, state } = mockEvolution();
+  await new Promise((r) => evo.listen(0, "127.0.0.1", r));
+  setupEnv({ dataDir, evoUrl: `http://127.0.0.1:${evo.address().port}` });
+  delete require.cache[require.resolve("../server")];
+  const { app, server, base } = await startApp();
+  const api = client(base, await login(base));
+  t.after(async () => {
+    await new Promise((r) => server.close(r));
+    await new Promise((r) => evo.close(r));
+    app.store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  state.connectResponse = {};
+  const empty = await api("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  assert.equal(empty.status, 502);
+  assert.match(empty.body.error, /no devolvió QR ni código/);
+  const history = await api("/api/history?limit=10");
+  assert.equal(history.body.length, 1);
+  assert.equal(history.body[0].ok, false, "el historial no miente sobre el QR");
+
+  state.connectResponse = { code: "12345678" };
+  state.connectionState = "connecting";
+  const ok = await api("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"number":"3511234567"}' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.pairingCode, "12345678");
+  assert.ok(ok.body.expiresAt > Date.now(), "devuelve el vencimiento real");
+
+  const restored = await api("/api/connection");
+  assert.equal(restored.body.link.pairingCode, "12345678", "sobrevive a una recarga");
+  assert.equal(restored.body.link.expiresAt, ok.body.expiresAt, "el contador no se reinicia");
+
+  await api("/api/disconnect", { method: "POST" });
+  const cleared = await api("/api/connection");
+  assert.equal(cleared.body.link, null, "desvincular descarta el link");
+});
+
+test("un 401 o 500 sostenido de Evolution corta la campaña", async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pp-fatal-evo-"));
+  const { server: evo, state } = mockEvolution();
+  await new Promise((r) => evo.listen(0, "127.0.0.1", r));
+  setupEnv({ dataDir, evoUrl: `http://127.0.0.1:${evo.address().port}` });
+  delete require.cache[require.resolve("../server")];
+  const { app, server, base } = await startApp();
+  const api = client(base, await login(base));
+  t.after(async () => {
+    await new Promise((r) => server.close(r));
+    await new Promise((r) => evo.close(r));
+    app.store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const ids = [];
+  for (let i = 0; i < 6; i++) {
+    const r = await api("/api/contacts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Fatal " + i, phone: "351800000" + i, optIn: true })
+    });
+    ids.push(r.body.id);
+  }
+  const send = (key, targets) => api("/api/send", {
+    method: "POST", headers: { "Idempotency-Key": key },
+    body: formData({ type: "text", text: "Prueba", ids: JSON.stringify(targets) })
+  });
+
+  state.sendError = 401;
+  const auth = await send("fatal-401", ids.slice(0, 4));
+  const authJob = await waitJob(api, auth.body.jobId);
+  assert.equal(authJob.status, "error");
+  assert.equal(authJob.processed, 1, "corta al primer 401");
+  assert.match(authJob.error, /EVOLUTION_API_KEY/);
+
+  state.sendError = 500;
+  const serverErr = await send("fatal-500", ids.slice(2, 6));
+  const serverJob = await waitJob(api, serverErr.body.jobId);
+  assert.equal(serverJob.status, "error");
+  assert.equal(serverJob.processed, 2, "corta tras dos 500 seguidos");
+  assert.match(serverJob.error, /500 2 veces/);
+  assert.equal(state.sent.length, 0, "ningún mensaje se envió con la clave rota");
 });

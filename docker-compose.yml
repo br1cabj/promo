@@ -5,8 +5,9 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    # Solo loopback: el ingreso al panel debe ir por un proxy con HTTPS.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./data:/app/data
     healthcheck:

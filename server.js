@@ -450,6 +450,7 @@ let sendPumpActive = false;
 let shuttingDown = false;
 const MAX_QUEUE_SIZE = 3;
 const MAX_NETWORK_FAILURES = 3;
+const MAX_API_FAILURES = 2;
 const NETWORK_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "EPIPE", "ECONNABORTED", "ERR_NETWORK", "EPROTO"]);
 function isNetworkFailure(err) {
   if (!err) return false;
@@ -532,7 +533,7 @@ async function runSendJob(job, { type, text, contacts, media }) {
       error: o.errors.length ? o.errors.join(" | ") : undefined
     });
   };
-  let networkFailures = 0, aborted = false, current = null;
+  let networkFailures = 0, apiFailures = 0, aborted = false, current = null;
   try {
     const api = evoClient();
     // Una unidad por cada mensaje a enviar: con texto es una por cliente; con
@@ -568,14 +569,26 @@ async function runSendJob(job, { type, text, contacts, media }) {
         mark(c, true);
       } catch (err) {
         const error = evoError(err);
+        const status = Number(err?.response?.status || 0);
         networkFailures = isNetworkFailure(err) ? networkFailures + 1 : 0;
+        apiFailures = status >= 500 || status === 429 ? apiFailures + 1 : 0;
         job.failed++;
         recordResult(job, { name: c.name, phone: c.phone, ok: false, error });
         mark(c, false, error);
-        if (networkFailures >= MAX_NETWORK_FAILURES) {
+        if (status === 401 || status === 403) {
+          // Con la clave vencida o sin permisos, reintentar por cada contacto
+          // solo genera fallos y filas de historial: cortamos de inmediato.
+          aborted = true;
+          job.status = "error";
+          job.error = error;
+        } else if (networkFailures >= MAX_NETWORK_FAILURES) {
           aborted = true;
           job.status = "error";
           job.error = `No se pudo contactar con Evolution API tras ${MAX_NETWORK_FAILURES} intentos. Se detuvo el envío para evitar fallos en cadena.`;
+        } else if (apiFailures >= MAX_API_FAILURES) {
+          aborted = true;
+          job.status = "error";
+          job.error = `Evolution API devolvió ${status} ${MAX_API_FAILURES} veces seguidas. Se detuvo el envío para evitar fallos en cadena.`;
         }
       }
       job.processed = i + 1;
@@ -592,6 +605,24 @@ async function runSendJob(job, { type, text, contacts, media }) {
     for (const c of contacts) flushContact(c);
     job.finishedAt = new Date().toISOString();
   }
+}
+
+// El QR/código se guarda en memoria mientras sirve: así una recarga de la
+// página no reinicia el contador ni deja al usuario sin el link generado.
+const connectionLinks = new Map();
+function rememberLink(instanceName, kind, link) {
+  const entry = { kind, ...link, expiresAt: Date.now() + LINK_TTL_MS };
+  connectionLinks.set(instanceName, entry);
+  return entry;
+}
+function currentLink(instanceName) {
+  const entry = connectionLinks.get(instanceName);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    connectionLinks.delete(instanceName);
+    return null;
+  }
+  return entry;
 }
 
 // Espera estimada hasta que arranque un job: lo que queda del envío actual más
@@ -744,6 +775,7 @@ app.get("/api/connection", async (req, res) => {
     const instance = encodeURIComponent(config.instance);
     const stateRes = await api.get(`/instance/connectionState/${instance}`);
     const state = stateRes.data?.instance?.state || null;
+    if (state === "open") connectionLinks.delete(config.instance);
     // Datos de la cuenta vinculada (opcionales): número y nombre de perfil.
     let owner = "", profileName = "";
     try {
@@ -751,13 +783,19 @@ app.get("/api/connection", async (req, res) => {
       const list = (Array.isArray(infoRes.data) ? infoRes.data : [infoRes.data])
         .map((x) => (x && x.instance ? x.instance : x))
         .filter(Boolean);
-      const info = list.find((x) => x.instanceName === config.instance || x.name === config.instance) || list[0] || {};
+      // Nunca mostramos la cuenta de otra instancia si falló el filtro.
+      const info = list.find((x) => x.instanceName === config.instance || x.name === config.instance) || {};
       owner = String(info.owner || info.ownerJid || info.wuid || info.number || "").replace(/\D/g, "");
       profileName = info.profileName || "";
     } catch { /* los datos de la cuenta no son críticos */ }
-    res.json({ configured: true, state, connected: state === "open", instance: config.instance, owner, profileName });
+    res.json({ configured: true, state, connected: state === "open", instance: config.instance, owner, profileName, link: currentLink(config.instance) });
   } catch (e) {
-    res.status(200).json({ configured: true, connected: false, state: null, instance: config.instance, error: evoError(e) });
+    const status = Number(e?.response?.status || 0);
+    res.status(200).json({
+      configured: true, connected: false, state: null, instance: config.instance,
+      error: evoError(e), status, authError: status === 401 || status === 403,
+      link: currentLink(config.instance)
+    });
   }
 });
 
@@ -768,6 +806,7 @@ app.post("/api/disconnect", async (req, res) => {
   const instance = encodeURIComponent(config.instance);
   try {
     await api.delete(`/instance/logout/${instance}`);
+    connectionLinks.delete(config.instance);
     addHistory({ kind: "connection", ok: true, type: "disconnect", name: "Número desvinculado" });
     return res.json({ ok: true });
   } catch (e) {
@@ -776,6 +815,7 @@ app.post("/api/disconnect", async (req, res) => {
     try {
       const st = await api.get(`/instance/connectionState/${instance}`);
       if (st.data?.instance?.state !== "open") {
+        connectionLinks.delete(config.instance);
         addHistory({ kind: "connection", ok: true, type: "disconnect", name: "Número desvinculado (recuperado)" });
         return res.json({ ok: true, recovered: true });
       }
@@ -814,8 +854,15 @@ app.post("/api/connect", async (req, res) => {
     if (r && r.needsCreate) {
       return res.json({ ok: false, needsCreate: true, error: `La instancia "${config.instance}" no existe en Evolution API. ¿Crearla?` });
     }
+    const response = connectResponse(r.data || {});
+    if (!response.qr && !response.pairingCode) {
+      const error = "Evolution API no devolvió QR ni código de vinculación. Revisá la instancia y volvé a intentar.";
+      addHistory({ kind: "connection", ok: false, type: kind, name: kind === "pairing" ? "Código de vinculación" : "QR", error });
+      return res.status(502).json({ ok: false, error });
+    }
+    const saved = rememberLink(config.instance, kind, response);
     addHistory({ kind: "connection", ok: true, type: kind, name: kind === "pairing" ? "Código de vinculación generado" : "QR generado" });
-    res.json(connectResponse(r.data || {}));
+    res.json({ ...response, expiresAt: saved.expiresAt });
   } catch (e) {
     const error = evoError(e);
     addHistory({ kind: "connection", ok: false, type: kind, name: kind === "pairing" ? "Código de vinculación" : "QR", error });
@@ -1018,11 +1065,14 @@ app.use((err, req, res, next) => {
 // ---------------------------------------------------------------------------
 // Arranque
 // ---------------------------------------------------------------------------
+// También se rechazan los valores que proponen los .env de ejemplo: copiar el
+// archivo y desplegar no puede dejar una credencial pública conocida.
+const EXAMPLE_PASSWORDS = new Set(["change-me-now", "cambia-esta-clave-larga", "cambia-esta-clave-larga-y-unica"]);
 function warnConfig() {
   if (!configured()) console.warn("[PromoPanel] Evolution API incompleta: revisá EVOLUTION_URL, EVOLUTION_API_KEY y EVOLUTION_INSTANCE en .env");
-  if (!process.env.PANEL_PASSWORD || PANEL_PASSWORD === "change-me-now") {
+  if (!process.env.PANEL_PASSWORD || EXAMPLE_PASSWORDS.has(PANEL_PASSWORD)) {
     if (process.env.NODE_ENV === "production") {
-      throw new Error("PANEL_PASSWORD no configurada: definila antes de iniciar el panel en producción.");
+      throw new Error("PANEL_PASSWORD no configurada o es la del ejemplo: definila antes de iniciar el panel en producción.");
     }
     console.warn("[PromoPanel] Usando contraseña por defecto. Configurá PANEL_PASSWORD en .env antes de exponer el panel.");
   }
